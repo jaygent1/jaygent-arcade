@@ -201,8 +201,8 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 25px;
-    margin-bottom: 15px;
+    overflow: hidden;
+    margin-bottom: 20px;
     transition: all 0.3s;
     cursor: pointer;
     text-decoration: none;
@@ -212,8 +212,58 @@
   
   .game-card:hover {
     border-color: var(--accent);
-    transform: translateX(5px);
-    box-shadow: -5px 0 30px rgba(0,255,170,0.1);
+    transform: translateY(-5px);
+    box-shadow: 0 15px 40px rgba(0,255,170,0.15);
+  }
+  
+  .game-preview {
+    position: relative;
+    height: 180px;
+    background: #050510;
+    overflow: hidden;
+  }
+  
+  .game-preview canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  
+  .game-preview-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(transparent 50%, rgba(10,10,21,0.95));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  
+  .game-card:hover .game-preview-overlay {
+    opacity: 1;
+  }
+  
+  .preview-play-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 15px 40px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    transform: scale(0.9);
+    transition: transform 0.2s;
+  }
+  
+  .game-card:hover .preview-play-btn {
+    transform: scale(1);
+  }
+  
+  .game-content {
+    padding: 20px;
   }
   
   .game-header {
@@ -685,35 +735,55 @@
       <h2>🎮 GAMES</h2>
       
       <a href="/void-rush.html" class="game-card">
-        <div class="game-header">
-          <span class="game-title">VOID RUSH</span>
-          <span class="game-badge">⚡ AI ENABLED</span>
+        <div class="game-preview">
+          <canvas id="voidRushPreview"></canvas>
+          <div class="game-preview-overlay">
+            <button class="preview-play-btn">▶ PLAY NOW</button>
+          </div>
         </div>
-        <p class="game-desc">Infinite space shooter. Survive waves of enemies. Fight epic bosses. How far can you go?</p>
-        <div class="game-actions">
-          <span class="game-action primary">▶ PLAY</span>
-          <span class="game-action" onclick="event.preventDefault(); openChallenge()">⚔️ VS AI</span>
-          <span class="game-action" onclick="event.preventDefault(); openWatch()">👁️ WATCH</span>
+        <div class="game-content">
+          <div class="game-header">
+            <span class="game-title">VOID RUSH</span>
+            <span class="game-badge">⚡ AI ENABLED</span>
+          </div>
+          <p class="game-desc">Infinite space shooter. Survive waves of enemies. Fight epic bosses.</p>
+          <div class="game-actions">
+            <span class="game-action" onclick="event.preventDefault(); openChallenge()">⚔️ VS AI</span>
+            <span class="game-action" onclick="event.preventDefault(); openWatch()">👁️ WATCH</span>
+          </div>
         </div>
       </a>
       
       <a href="/breaker.html" class="game-card">
-        <div class="game-header">
-          <span class="game-title">BREAKER</span>
-          <span class="game-badge" style="opacity: 0.6">CLASSIC</span>
+        <div class="game-preview">
+          <canvas id="breakerPreview"></canvas>
+          <div class="game-preview-overlay">
+            <button class="preview-play-btn">▶ PLAY NOW</button>
+          </div>
         </div>
-        <p class="game-desc">Break all the bricks. Collect power-ups. Chain combos. 10 levels of arcade action.</p>
-        <div class="game-actions">
-          <span class="game-action primary">▶ PLAY</span>
+        <div class="game-content">
+          <div class="game-header">
+            <span class="game-title">BREAKER</span>
+            <span class="game-badge" style="opacity: 0.6">CLASSIC</span>
+          </div>
+          <p class="game-desc">Break all the bricks. Collect power-ups. Chain combos for massive scores.</p>
+          <div class="game-actions">
+            <span class="game-action primary" style="width: 100%; text-align: center;">▶ PLAY</span>
+          </div>
         </div>
       </a>
       
-      <div class="game-card" style="opacity: 0.5; pointer-events: none;">
-        <div class="game-header">
-          <span class="game-title">MORE COMING</span>
-          <span class="game-badge" style="background: transparent; border-color: var(--muted); color: var(--muted);">SOON</span>
+      <div class="game-card" style="opacity: 0.4; pointer-events: none;">
+        <div class="game-preview" style="background: linear-gradient(135deg, #1a1a2e 0%, #0a0a15 100%); display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 3rem;">🎮</span>
         </div>
-        <p class="game-desc">New games are in development. What should we build next?</p>
+        <div class="game-content">
+          <div class="game-header">
+            <span class="game-title">MORE COMING</span>
+            <span class="game-badge" style="background: transparent; border-color: var(--muted); color: var(--muted);">SOON</span>
+          </div>
+          <p class="game-desc">New games are in development. What should we build next?</p>
+        </div>
       </div>
     </div>
     
@@ -1000,6 +1070,349 @@ loadData();
 updateDailyTimer();
 setInterval(updateDailyTimer, 1000);
 setInterval(loadData, 15000); // Refresh every 15s
+
+// ============================================
+// GAME PREVIEW ANIMATIONS
+// ============================================
+
+// Void Rush Preview
+(function() {
+  const canvas = document.getElementById('voidRushPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  
+  const W = canvas.width, H = canvas.height;
+  
+  // Stars
+  const stars = Array.from({length: 50}, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    speed: 0.5 + Math.random() * 2,
+    size: Math.random() * 1.5
+  }));
+  
+  // Player
+  const player = { x: W / 2, y: H - 40, targetX: W / 2 };
+  
+  // Enemies
+  let enemies = [];
+  let bullets = [];
+  let particles = [];
+  let lastSpawn = 0;
+  
+  function spawnEnemy() {
+    enemies.push({
+      x: 30 + Math.random() * (W - 60),
+      y: -20,
+      size: 12 + Math.random() * 8,
+      speed: 0.5 + Math.random() * 1.5,
+      color: ['#ff6b6b', '#ffaa00', '#ff00ff', '#00ffff'][Math.floor(Math.random() * 4)]
+    });
+  }
+  
+  function update() {
+    // Stars
+    stars.forEach(s => {
+      s.y += s.speed;
+      if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
+    });
+    
+    // Player AI - move toward random target
+    if (Math.random() < 0.02) player.targetX = 30 + Math.random() * (W - 60);
+    player.x += (player.targetX - player.x) * 0.05;
+    
+    // Spawn enemies
+    if (Date.now() - lastSpawn > 800) {
+      spawnEnemy();
+      lastSpawn = Date.now();
+    }
+    
+    // Auto-shoot
+    if (Math.random() < 0.15) {
+      bullets.push({ x: player.x, y: player.y - 15, dy: -6 });
+    }
+    
+    // Update bullets
+    bullets = bullets.filter(b => {
+      b.y += b.dy;
+      return b.y > -10;
+    });
+    
+    // Update enemies
+    enemies = enemies.filter(e => {
+      e.y += e.speed;
+      
+      // Check bullet collision
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        if (Math.abs(b.x - e.x) < e.size && Math.abs(b.y - e.y) < e.size) {
+          bullets.splice(i, 1);
+          // Explosion particles
+          for (let j = 0; j < 8; j++) {
+            const angle = Math.random() * Math.PI * 2;
+            particles.push({
+              x: e.x, y: e.y,
+              dx: Math.cos(angle) * (1 + Math.random() * 2),
+              dy: Math.sin(angle) * (1 + Math.random() * 2),
+              life: 20,
+              color: e.color
+            });
+          }
+          return false;
+        }
+      }
+      
+      return e.y < H + 20;
+    });
+    
+    // Update particles
+    particles = particles.filter(p => {
+      p.x += p.dx;
+      p.y += p.dy;
+      p.life--;
+      return p.life > 0;
+    });
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#03030a';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Stars
+    ctx.fillStyle = '#fff';
+    stars.forEach(s => {
+      ctx.globalAlpha = 0.3 + s.speed * 0.2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    
+    // Enemies
+    enemies.forEach(e => {
+      ctx.fillStyle = e.color;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const px = e.x + Math.cos(angle) * e.size;
+        const py = e.y + Math.sin(angle) * e.size;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    });
+    
+    // Bullets
+    ctx.fillStyle = '#00ffaa';
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 5;
+    bullets.forEach(b => {
+      ctx.beginPath();
+      ctx.ellipse(b.x, b.y, 2, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+    
+    // Player
+    ctx.fillStyle = '#00ffaa';
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y - 15);
+    ctx.lineTo(player.x - 12, player.y + 10);
+    ctx.lineTo(player.x, player.y + 5);
+    ctx.lineTo(player.x + 12, player.y + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Engine
+    ctx.fillStyle = '#0088ff';
+    ctx.beginPath();
+    ctx.ellipse(player.x, player.y + 12, 4, 6 + Math.random() * 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Particles
+    particles.forEach(p => {
+      ctx.globalAlpha = p.life / 20;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  
+  loop();
+})();
+
+// Breaker Preview
+(function() {
+  const canvas = document.getElementById('breakerPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  
+  const W = canvas.width, H = canvas.height;
+  
+  // Paddle
+  const paddle = { x: W / 2, w: 60, h: 8, targetX: W / 2 };
+  const paddleY = H - 25;
+  
+  // Ball
+  let ball = { x: W / 2, y: H - 40, dx: 2, dy: -3, r: 5 };
+  
+  // Bricks
+  const COLORS = ['#ff3e6c', '#ff8c42', '#ffd166', '#06d6a0', '#118ab2'];
+  let bricks = [];
+  
+  function initBricks() {
+    bricks = [];
+    const rows = 4, cols = 10;
+    const bw = 35, bh = 12, gap = 3;
+    const startX = (W - cols * (bw + gap)) / 2;
+    
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        bricks.push({
+          x: startX + c * (bw + gap),
+          y: 20 + r * (bh + gap),
+          w: bw, h: bh,
+          color: COLORS[r % COLORS.length],
+          alive: true
+        });
+      }
+    }
+  }
+  initBricks();
+  
+  let particles = [];
+  
+  function update() {
+    // Paddle AI - follow ball
+    paddle.targetX = ball.x;
+    paddle.x += (paddle.targetX - paddle.x) * 0.1;
+    paddle.x = Math.max(paddle.w / 2, Math.min(W - paddle.w / 2, paddle.x));
+    
+    // Ball movement
+    ball.x += ball.dx;
+    ball.y += ball.dy;
+    
+    // Wall bounce
+    if (ball.x - ball.r <= 0 || ball.x + ball.r >= W) ball.dx *= -1;
+    if (ball.y - ball.r <= 0) ball.dy *= -1;
+    
+    // Paddle bounce
+    if (ball.dy > 0 && ball.y + ball.r >= paddleY && 
+        ball.x > paddle.x - paddle.w / 2 && ball.x < paddle.x + paddle.w / 2) {
+      ball.dy = -Math.abs(ball.dy);
+      ball.dx = (ball.x - paddle.x) / 15;
+    }
+    
+    // Bottom reset
+    if (ball.y > H + 20) {
+      ball = { x: W / 2, y: H - 40, dx: 2 * (Math.random() > 0.5 ? 1 : -1), dy: -3, r: 5 };
+    }
+    
+    // Brick collision
+    for (const b of bricks) {
+      if (!b.alive) continue;
+      if (ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+        b.alive = false;
+        ball.dy *= -1;
+        // Particles
+        for (let i = 0; i < 6; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          particles.push({
+            x: b.x + b.w / 2, y: b.y + b.h / 2,
+            dx: Math.cos(angle) * (1 + Math.random() * 2),
+            dy: Math.sin(angle) * (1 + Math.random() * 2),
+            life: 20,
+            color: b.color
+          });
+        }
+        break;
+      }
+    }
+    
+    // Reset bricks if all gone
+    if (bricks.every(b => !b.alive)) initBricks();
+    
+    // Update particles
+    particles = particles.filter(p => {
+      p.x += p.dx;
+      p.y += p.dy;
+      p.dy += 0.1;
+      p.life--;
+      return p.life > 0;
+    });
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Bricks
+    for (const b of bricks) {
+      if (!b.alive) continue;
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.roundRect(b.x, b.y, b.w, b.h, 2);
+      ctx.fill();
+    }
+    
+    // Paddle
+    const grad = ctx.createLinearGradient(paddle.x - paddle.w / 2, paddleY, paddle.x + paddle.w / 2, paddleY);
+    grad.addColorStop(0, '#00ffaa');
+    grad.addColorStop(1, '#00cc88');
+    ctx.fillStyle = grad;
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.roundRect(paddle.x - paddle.w / 2, paddleY, paddle.w, paddle.h, 4);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Ball
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Particles
+    particles.forEach(p => {
+      ctx.globalAlpha = p.life / 20;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  
+  loop();
+})();
 </script>
 </body>
 </html>
