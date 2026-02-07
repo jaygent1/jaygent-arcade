@@ -1370,6 +1370,395 @@ function gameLoop(time) {
 // Init
 fetchGlobalScores();
 requestAnimationFrame(gameLoop);
+
+// ============================================
+// CHALLENGE MODE - Real AI Opponent
+// ============================================
+
+const urlParams = new URLSearchParams(window.location.search);
+const challengeMode = urlParams.get('challenge');
+const spectateMode = urlParams.get('spectate');
+
+let aiSession = null;
+let aiState = null;
+let aiGameOver = false;
+let challengeResult = null;
+
+// AI Strategy configs
+const AI_STRATEGIES = {
+  easy: { aggression: 0.3, dodgeSkill: 0.5, reactionTime: 200 },
+  medium: { aggression: 0.5, dodgeSkill: 0.7, reactionTime: 100 },
+  hard: { aggression: 0.8, dodgeSkill: 0.9, reactionTime: 50 }
+};
+
+// Challenge Mode UI
+if (challengeMode) {
+  initChallengeMode();
+}
+
+function initChallengeMode() {
+  // Add challenge UI
+  const challengeUI = document.createElement('div');
+  challengeUI.id = 'challengeUI';
+  challengeUI.innerHTML = `
+    <style>
+      #challengeUI {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(5,5,15,0.95);
+        border: 2px solid #ff6b6b;
+        border-radius: 12px;
+        padding: 20px;
+        min-width: 200px;
+        font-family: 'Courier New', monospace;
+        z-index: 200;
+      }
+      #challengeUI h3 {
+        color: #ff6b6b;
+        font-size: 14px;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #challengeUI .ai-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+      #challengeUI .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00ff00;
+        animation: pulse 1s infinite;
+      }
+      #challengeUI .status-dot.dead {
+        background: #ff0000;
+        animation: none;
+      }
+      #challengeUI .ai-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      #challengeUI .stat-box {
+        background: rgba(0,0,0,0.3);
+        padding: 10px;
+        border-radius: 6px;
+        text-align: center;
+      }
+      #challengeUI .stat-label {
+        font-size: 10px;
+        color: #666;
+        text-transform: uppercase;
+      }
+      #challengeUI .stat-value {
+        font-size: 18px;
+        color: #ff6b6b;
+        font-weight: bold;
+      }
+      #challengeUI .vs-indicator {
+        text-align: center;
+        margin: 15px 0;
+        font-size: 12px;
+        color: #666;
+      }
+      #challengeUI .player-score {
+        color: #00ffaa;
+      }
+      #challengeUI .result {
+        text-align: center;
+        padding: 15px;
+        margin-top: 15px;
+        border-radius: 8px;
+        font-weight: bold;
+      }
+      #challengeUI .result.win {
+        background: rgba(0,255,170,0.2);
+        border: 1px solid #00ffaa;
+        color: #00ffaa;
+      }
+      #challengeUI .result.lose {
+        background: rgba(255,107,107,0.2);
+        border: 1px solid #ff6b6b;
+        color: #ff6b6b;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+    </style>
+    <h3>🤖 AI OPPONENT</h3>
+    <div class="ai-status">
+      <span class="status-dot" id="aiStatusDot"></span>
+      <span id="aiStatusText">Initializing...</span>
+    </div>
+    <div class="ai-stats">
+      <div class="stat-box">
+        <div class="stat-label">Score</div>
+        <div class="stat-value" id="aiScore">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Wave</div>
+        <div class="stat-value" id="aiWave">1</div>
+      </div>
+    </div>
+    <div class="vs-indicator">
+      <span class="player-score">YOU: <span id="yourScore">0</span></span>
+      <span style="margin: 0 10px;">vs</span>
+      <span style="color: #ff6b6b;">AI: <span id="theirScore">0</span></span>
+    </div>
+    <div id="challengeResult" style="display: none;"></div>
+  `;
+  document.body.appendChild(challengeUI);
+  
+  // Start AI when player starts
+  const originalStartGame = startGame;
+  startGame = function() {
+    originalStartGame();
+    startAIOpponent();
+  };
+  
+  // Check for winner when player dies
+  const originalCheckHighScore = checkHighScore;
+  checkHighScore = function() {
+    if (challengeMode && !challengeResult) {
+      determineWinner();
+    }
+    originalCheckHighScore();
+  };
+}
+
+async function startAIOpponent() {
+  const difficulty = challengeMode || 'medium';
+  const strategy = AI_STRATEGIES[difficulty] || AI_STRATEGIES.medium;
+  
+  document.getElementById('aiStatusText').textContent = `${difficulty.toUpperCase()} AI Playing...`;
+  
+  try {
+    // Start AI session via API
+    const res = await fetch('/api/games/void-rush/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playerId: `challenger-${difficulty}`,
+        playerType: 'AGENT'
+      })
+    });
+    
+    const data = await res.json();
+    aiSession = data.sessionId;
+    aiState = data.state;
+    
+    // Start AI game loop
+    runAILoop(strategy);
+  } catch (e) {
+    console.error('Failed to start AI:', e);
+    document.getElementById('aiStatusText').textContent = 'AI Failed to Connect';
+  }
+}
+
+async function runAILoop(strategy) {
+  if (!aiSession || aiGameOver) return;
+  
+  try {
+    // AI decision making
+    const action = makeAIDecision(aiState, strategy);
+    
+    // Send action to API
+    const res = await fetch(`/api/games/void-rush/${aiSession}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...action, ticks: 5 })
+    });
+    
+    const data = await res.json();
+    aiState = data.state;
+    
+    // Update UI
+    document.getElementById('aiScore').textContent = aiState.score.toLocaleString();
+    document.getElementById('aiWave').textContent = aiState.wave;
+    document.getElementById('theirScore').textContent = aiState.score.toLocaleString();
+    document.getElementById('yourScore').textContent = score.toLocaleString();
+    
+    if (data.gameOver) {
+      aiGameOver = true;
+      document.getElementById('aiStatusDot').classList.add('dead');
+      document.getElementById('aiStatusText').textContent = `AI Died - Wave ${aiState.wave}`;
+      
+      if (gameOver && !challengeResult) {
+        determineWinner();
+      }
+    } else {
+      // Continue loop
+      setTimeout(() => runAILoop(strategy), strategy.reactionTime);
+    }
+  } catch (e) {
+    console.error('AI error:', e);
+  }
+}
+
+function makeAIDecision(state, strategy) {
+  if (!state || state.state !== 'playing') {
+    return { shoot: true };
+  }
+  
+  const { player, enemies, enemyBullets, boss, powerups } = state;
+  const W = state.dimensions.width;
+  
+  const action = {
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    shoot: true,
+    bomb: false
+  };
+  
+  // Dodge bullets based on skill
+  const dangerousBullets = enemyBullets.filter(b =>
+    Math.abs(b.x - player.x) < 50 &&
+    b.y > player.y - 100 &&
+    b.y < player.y + 20
+  );
+  
+  if (dangerousBullets.length > 0 && Math.random() < strategy.dodgeSkill) {
+    const leftDanger = dangerousBullets.filter(b => b.x <= player.x).length;
+    const rightDanger = dangerousBullets.filter(b => b.x > player.x).length;
+    
+    if (leftDanger < rightDanger && player.x > 50) {
+      action.left = true;
+    } else if (player.x < W - 50) {
+      action.right = true;
+    }
+    
+    // Move up to dodge
+    if (Math.random() < 0.3) action.up = true;
+  }
+  
+  // Chase enemies/boss based on aggression
+  if (!action.left && !action.right && Math.random() < strategy.aggression) {
+    const target = boss || (enemies.length > 0 ? enemies[0] : null);
+    if (target) {
+      if (target.x < player.x - 30) action.left = true;
+      else if (target.x > player.x + 30) action.right = true;
+    }
+  }
+  
+  // Collect powerups
+  if (powerups.length > 0 && Math.random() < 0.6) {
+    const p = powerups[0];
+    if (p.y < player.y && p.y > player.y - 150) {
+      if (p.x < player.x - 20) action.left = true;
+      else if (p.x > player.x + 20) action.right = true;
+    }
+  }
+  
+  // Emergency bomb
+  if (dangerousBullets.length > 6 && state.bombs > 0 && Math.random() < 0.5) {
+    action.bomb = true;
+  }
+  
+  // Boundary avoidance
+  if (player.x < 40) { action.left = false; action.right = true; }
+  if (player.x > W - 40) { action.right = false; action.left = true; }
+  
+  return action;
+}
+
+function determineWinner() {
+  if (challengeResult) return;
+  
+  const playerScore = score;
+  const playerWave = wave;
+  const aiScore = aiState?.score || 0;
+  const aiWave = aiState?.wave || 1;
+  
+  const resultDiv = document.getElementById('challengeResult');
+  resultDiv.style.display = 'block';
+  
+  // Determine winner: higher wave wins, then higher score
+  let playerWins = false;
+  if (playerWave > aiWave) {
+    playerWins = true;
+  } else if (playerWave === aiWave) {
+    playerWins = playerScore >= aiScore;
+  }
+  
+  challengeResult = playerWins ? 'win' : 'lose';
+  
+  resultDiv.className = `result ${challengeResult}`;
+  if (playerWins) {
+    resultDiv.innerHTML = `🏆 YOU WIN!<br><small>You beat the AI!</small>`;
+  } else {
+    resultDiv.innerHTML = `💀 AI WINS<br><small>The machine prevails...</small>`;
+  }
+}
+
+// ============================================
+// SPECTATE MODE
+// ============================================
+
+if (spectateMode) {
+  initSpectateMode(spectateMode);
+}
+
+async function initSpectateMode(sessionId) {
+  // Hide game controls
+  document.getElementById('message').textContent = '👁️ SPECTATING...';
+  
+  // Add spectate banner
+  const banner = document.createElement('div');
+  banner.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(90deg, #a855f7, #06b6d4);
+    color: white;
+    text-align: center;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    z-index: 300;
+  `;
+  banner.innerHTML = `👁️ SPECTATING SESSION ${sessionId} <button onclick="window.location.href='/'" style="margin-left:20px;padding:5px 15px;cursor:pointer;">EXIT</button>`;
+  document.body.appendChild(banner);
+  
+  // Poll for state and render
+  spectateLoop(sessionId);
+}
+
+async function spectateLoop(sessionId) {
+  try {
+    const res = await fetch(`/api/games/void-rush/${sessionId}/state`);
+    if (!res.ok) {
+      document.getElementById('message').textContent = 'Session ended';
+      return;
+    }
+    
+    const state = await res.json();
+    
+    // Update display
+    document.getElementById('scoreVal').textContent = state.score.toLocaleString();
+    document.getElementById('waveVal').textContent = state.wave;
+    document.getElementById('livesVal').textContent = '❤'.repeat(Math.max(0, state.lives)) + ' ' + '💣'.repeat(Math.max(0, state.bombs));
+    
+    if (state.state === 'game_over') {
+      document.getElementById('message').textContent = `GAME OVER - Score: ${state.score.toLocaleString()} - Wave ${state.wave}`;
+      return;
+    }
+    
+    // Continue polling
+    setTimeout(() => spectateLoop(sessionId), 100);
+  } catch (e) {
+    document.getElementById('message').textContent = 'Connection lost';
+  }
+}
 </script>
 </body>
 </html>
