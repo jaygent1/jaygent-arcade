@@ -259,8 +259,8 @@ const server = http.createServer((req, res) => {
         for (let i = 0; i < ticks; i++) {
           game.tick();
           
-          // Record frame for replay (sample every 3rd frame to reduce size)
-          if (game.replayFrames && game.replayFrames.length % 3 === 0) {
+          // Record frame for replay (sample every 3rd tick to reduce size)
+          if (game.replayFrames && game.ticks % 3 === 0) {
             game.replayFrames.push(game.getState());
           }
           
