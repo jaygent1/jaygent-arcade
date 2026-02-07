@@ -212,23 +212,20 @@ function playSound(freq, duration, type = 'square', vol = 0.15) {
   } catch(e) {}
 }
 
-// Polyfill for roundRect
-if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
-    const r = typeof radii === 'number' ? radii : (radii?.[0] || 0);
-    const radius = Math.min(r, w / 2, h / 2);
-    this.moveTo(x + radius, y);
-    this.lineTo(x + w - radius, y);
-    this.quadraticCurveTo(x + w, y, x + w, y + radius);
-    this.lineTo(x + w, y + h - radius);
-    this.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-    this.lineTo(x + radius, y + h);
-    this.quadraticCurveTo(x, y + h, x, y + h - radius);
-    this.lineTo(x, y + radius);
-    this.quadraticCurveTo(x, y, x + radius, y);
-    this.closePath();
-    return this;
-  };
+// Custom rounded rect function (avoids browser compatibility issues)
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
 const sounds = {
@@ -480,8 +477,7 @@ function draw() {
     
     // Rounded segments
     const padding = isHead ? 1 : 2;
-    ctx.beginPath();
-    ctx.roundRect(x + padding, y + padding, GRID - padding * 2, GRID - padding * 2, isHead ? 6 : 4);
+    drawRoundedRect(ctx, x + padding, y + padding, GRID - padding * 2, GRID - padding * 2, isHead ? 6 : 4);
     ctx.fill();
     
     // Eyes on head
