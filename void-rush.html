@@ -1701,20 +1701,26 @@ function determineWinner() {
 }
 
 // ============================================
-// SPECTATE MODE
+// SPECTATE MODE - Smooth Real-time Streaming
 // ============================================
 
 if (spectateMode) {
   initSpectateMode(spectateMode);
 }
 
+// Interpolation state for smooth rendering
+let spectateState = {
+  current: null,
+  previous: null,
+  lastUpdate: 0,
+  interpolationFactor: 0
+};
+
 async function initSpectateMode(sessionId) {
-  // Set game to running state for rendering
   gameRunning = true;
   gameOver = false;
   
-  // Hide game controls
-  document.getElementById('message').textContent = '👁️ SPECTATING LIVE...';
+  document.getElementById('message').textContent = '👁️ CONNECTING...';
   
   // Add spectate banner
   const banner = document.createElement('div');
@@ -1730,42 +1736,176 @@ async function initSpectateMode(sessionId) {
     font-family: 'Courier New', monospace;
     font-weight: bold;
     z-index: 300;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
   `;
-  banner.innerHTML = `👁️ SPECTATING SESSION ${sessionId} <button onclick="window.location.href='/'" style="margin-left:20px;padding:5px 15px;cursor:pointer;">EXIT</button>`;
+  banner.innerHTML = `
+    <span>👁️ SPECTATING LIVE</span>
+    <span id="spectate-stats" style="opacity:0.8;font-size:0.9em;"></span>
+    <button onclick="window.location.href='/spectate.html'" style="padding:5px 15px;cursor:pointer;">EXIT</button>
+  `;
   document.body.appendChild(banner);
   
-  // Poll for state and render
-  spectateLoop(sessionId);
+  // Try WebSocket first, fallback to optimized polling
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${wsProtocol}//${window.location.host}?session=${sessionId}&spectate=1`;
+  
+  try {
+    const ws = new WebSocket(wsUrl);
+    let connected = false;
+    
+    ws.onopen = () => {
+      connected = true;
+      document.getElementById('message').textContent = '👁️ SPECTATING LIVE';
+      console.log('WebSocket spectate connected');
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'state' || msg.state) {
+          const state = msg.state || msg;
+          updateSpectateState(state);
+        }
+        if (msg.type === 'game_over') {
+          handleSpectateGameOver(msg.state || msg.results);
+        }
+      } catch (e) {}
+    };
+    
+    ws.onerror = () => {
+      if (!connected) {
+        console.log('WebSocket failed, falling back to polling');
+        startPollingSpectate(sessionId);
+      }
+    };
+    
+    ws.onclose = () => {
+      if (!gameOver) {
+        document.getElementById('message').textContent = 'Connection closed';
+      }
+    };
+    
+  } catch (e) {
+    // WebSocket not available, use polling
+    startPollingSpectate(sessionId);
+  }
+  
+  // Start smooth render loop (60fps)
+  requestAnimationFrame(spectateRenderLoop);
 }
 
-async function spectateLoop(sessionId) {
-  try {
-    const res = await fetch(`/api/games/void-rush/${sessionId}/state`);
-    if (!res.ok) {
-      document.getElementById('message').textContent = 'Session ended or not found';
-      gameOver = true;
-      return;
+function startPollingSpectate(sessionId) {
+  document.getElementById('message').textContent = '👁️ SPECTATING LIVE';
+  
+  async function poll() {
+    if (gameOver) return;
+    
+    try {
+      const res = await fetch(`/api/games/void-rush/${sessionId}/state`);
+      if (!res.ok) {
+        document.getElementById('message').textContent = 'Session ended';
+        gameOver = true;
+        return;
+      }
+      
+      const state = await res.json();
+      updateSpectateState(state);
+      
+      if (state.state === 'game_over') {
+        handleSpectateGameOver(state);
+        return;
+      }
+      
+      // Fast polling for smoother updates
+      setTimeout(poll, 33); // ~30fps polling
+    } catch (e) {
+      document.getElementById('message').textContent = 'Connection lost';
     }
-    
-    const state = await res.json();
-    
-    // Sync ALL game state for rendering
-    score = state.score;
-    lives = state.lives;
-    wave = state.wave;
-    bombs = state.bombs;
-    currentWeapon = state.weapon || 'SINGLE';
-    waveTransition = state.waveTransition;
-    
-    // Sync player position
-    player.x = state.player.x;
-    player.y = state.player.y;
-    player.invincible = state.player.invincible ? 60 : 0;
-    
-    // Sync enemies (convert from API format)
-    enemies = (state.enemies || []).map(e => ({
-      x: e.x,
-      y: e.y,
+  }
+  
+  poll();
+}
+
+function updateSpectateState(state) {
+  // Store previous state for interpolation
+  spectateState.previous = spectateState.current;
+  spectateState.current = state;
+  spectateState.lastUpdate = performance.now();
+  spectateState.interpolationFactor = 0;
+  
+  // Update HUD immediately
+  score = state.score;
+  lives = state.lives;
+  wave = state.wave;
+  bombs = state.bombs;
+  currentWeapon = state.weapon || 'SINGLE';
+  waveTransition = state.waveTransition;
+  updateHUD();
+  
+  // Update stats display
+  const statsEl = document.getElementById('spectate-stats');
+  if (statsEl) {
+    statsEl.textContent = `Score: ${state.score.toLocaleString()} | Wave ${state.wave}`;
+  }
+}
+
+function handleSpectateGameOver(state) {
+  gameOver = true;
+  const finalScore = state.score || state.results?.score || 0;
+  const finalWave = state.wave || state.results?.wave || 1;
+  document.getElementById('message').textContent = `🏁 GAME OVER - Score: ${finalScore.toLocaleString()} - Wave ${finalWave}`;
+}
+
+function spectateRenderLoop() {
+  if (!spectateState.current) {
+    requestAnimationFrame(spectateRenderLoop);
+    return;
+  }
+  
+  const now = performance.now();
+  const elapsed = now - spectateState.lastUpdate;
+  const frameTime = 33; // Expected time between updates
+  
+  // Calculate interpolation factor (0 to 1)
+  spectateState.interpolationFactor = Math.min(elapsed / frameTime, 1.5);
+  
+  // Render interpolated state
+  renderInterpolatedState();
+  
+  if (!gameOver) {
+    requestAnimationFrame(spectateRenderLoop);
+  }
+}
+
+function renderInterpolatedState() {
+  const curr = spectateState.current;
+  const prev = spectateState.previous;
+  const t = Math.min(spectateState.interpolationFactor, 1);
+  
+  if (!curr) return;
+  
+  // Interpolate player position
+  if (prev && prev.player) {
+    player.x = lerp(prev.player.x, curr.player.x, t);
+    player.y = lerp(prev.player.y, curr.player.y, t);
+  } else {
+    player.x = curr.player.x;
+    player.y = curr.player.y;
+  }
+  player.invincible = curr.player.invincible ? 60 : 0;
+  
+  // Interpolate enemies
+  const currEnemies = curr.enemies || [];
+  const prevEnemies = prev?.enemies || [];
+  
+  enemies = currEnemies.map((e, i) => {
+    const pe = prevEnemies[i];
+    return {
+      x: pe ? lerp(pe.x, e.x, t) : e.x,
+      y: pe ? lerp(pe.y, e.y, t) : e.y,
       w: e.type === 'tank' ? 36 : (e.type === 'swarm' ? 18 : 26),
       h: e.type === 'tank' ? 36 : (e.type === 'swarm' ? 18 : 26),
       type: e.type,
@@ -1774,69 +1914,57 @@ async function spectateLoop(sessionId) {
       color: getEnemyColor(e.type),
       entered: true,
       phase: Date.now() / 1000
-    }));
-    
-    // Sync boss
-    if (state.boss) {
-      boss = {
-        x: state.boss.x,
-        y: state.boss.y,
-        w: 110 + state.boss.level * 15,
-        h: 70 + state.boss.level * 8,
-        hp: state.boss.hp,
-        maxHp: state.boss.maxHp,
-        level: state.boss.level,
-        rage: state.boss.rage,
-        entered: true,
-        color: state.boss.rage ? '#ff0000' : '#ff0066'
-      };
-      bossDefeated = false;
-    } else {
-      boss = null;
-    }
-    
-    // Sync bullets (player)
-    bullets = (state.bullets || []).map(b => ({
-      x: b.x,
-      y: b.y,
-      dx: 0,
-      dy: -14,
-      damage: 1,
-      color: WEAPONS[currentWeapon]?.color || '#00ffaa'
-    }));
-    
-    // Sync enemy bullets
-    enemyBullets = (state.enemyBullets || []).map(b => ({
-      x: b.x,
-      y: b.y,
-      dx: 0,
-      dy: 4,
-      color: '#ff8844'
-    }));
-    
-    // Sync powerups
-    powerups = (state.powerups || []).map(p => ({
-      x: p.x,
-      y: p.y,
-      type: p.type,
-      pulse: Date.now() / 150
-    }));
-    
-    // Update HUD
-    updateHUD();
-    
-    if (state.state === 'game_over') {
-      gameOver = true;
-      document.getElementById('message').textContent = `🏁 GAME OVER - Score: ${state.score.toLocaleString()} - Wave ${state.wave}`;
-      return;
-    }
-    
-    // Continue polling (faster for smoother visuals)
-    setTimeout(() => spectateLoop(sessionId), 50);
-  } catch (e) {
-    document.getElementById('message').textContent = 'Connection lost';
-    console.error('Spectate error:', e);
+    };
+  });
+  
+  // Interpolate boss
+  if (curr.boss) {
+    const pb = prev?.boss;
+    boss = {
+      x: pb ? lerp(pb.x, curr.boss.x, t) : curr.boss.x,
+      y: pb ? lerp(pb.y, curr.boss.y, t) : curr.boss.y,
+      w: 110 + curr.boss.level * 15,
+      h: 70 + curr.boss.level * 8,
+      hp: curr.boss.hp,
+      maxHp: curr.boss.maxHp,
+      level: curr.boss.level,
+      rage: curr.boss.rage,
+      entered: true,
+      color: curr.boss.rage ? '#ff0000' : '#ff0066'
+    };
+  } else {
+    boss = null;
   }
+  
+  // Bullets move fast, just use current state
+  bullets = (curr.bullets || []).map(b => ({
+    x: b.x,
+    y: b.y,
+    dx: 0,
+    dy: -14,
+    damage: 1,
+    color: WEAPONS[currentWeapon]?.color || '#00ffaa'
+  }));
+  
+  enemyBullets = (curr.enemyBullets || []).map(b => ({
+    x: b.x,
+    y: b.y,
+    dx: 0,
+    dy: 4,
+    color: '#ff8844'
+  }));
+  
+  powerups = (curr.powerups || []).map(p => ({
+    x: p.x,
+    y: p.y,
+    type: p.type,
+    pulse: Date.now() / 150
+  }));
+}
+
+// Linear interpolation helper
+function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
 
 // Helper for enemy colors in spectate mode

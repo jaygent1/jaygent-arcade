@@ -434,9 +434,13 @@ const server = http.createServer((req, res) => {
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ server });
 
+// Track spectators per session
+const spectators = new Map(); // sessionId -> Set of WebSocket clients
+
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const sessionId = url.searchParams.get('session');
+  const isSpectator = url.searchParams.get('spectate') === '1';
   
   if (!sessionId) {
     ws.close(4000, 'Session ID required');
@@ -449,9 +453,59 @@ wss.on('connection', (ws, req) => {
     return;
   }
   
-  console.log(`WebSocket connected: ${sessionId}`);
+  // Handle spectator connections
+  if (isSpectator) {
+    console.log(`Spectator connected: ${sessionId}`);
+    
+    // Add to spectators set
+    if (!spectators.has(sessionId)) {
+      spectators.set(sessionId, new Set());
+    }
+    spectators.get(sessionId).add(ws);
+    
+    // Send current state immediately
+    ws.send(JSON.stringify({
+      type: 'state',
+      state: game.getState()
+    }));
+    
+    // Stream state updates to spectator
+    let running = true;
+    const spectateLoop = setInterval(() => {
+      if (!running || ws.readyState !== WebSocket.OPEN) {
+        clearInterval(spectateLoop);
+        return;
+      }
+      
+      if (game.state === 'game_over') {
+        ws.send(JSON.stringify({
+          type: 'game_over',
+          state: game.getState(),
+          results: game.getResults()
+        }));
+        clearInterval(spectateLoop);
+        return;
+      }
+      
+      // Just send current state (don't tick - player/AI does that)
+      ws.send(JSON.stringify({
+        type: 'state',
+        state: game.getState()
+      }));
+    }, 33); // ~30fps state updates
+    
+    ws.on('close', () => {
+      running = false;
+      spectators.get(sessionId)?.delete(ws);
+      console.log(`Spectator disconnected: ${sessionId}`);
+    });
+    
+    return; // Don't run player logic for spectators
+  }
   
-  // Game loop for this connection
+  console.log(`WebSocket player connected: ${sessionId}`);
+  
+  // Game loop for this connection (player mode)
   let running = true;
   const loop = setInterval(() => {
     if (!running || game.state === 'game_over') {
@@ -465,6 +519,12 @@ wss.on('connection', (ws, req) => {
     }
     
     game.tick();
+    
+    // Record frame for replay
+    if (game.replayFrames && game.ticks % 3 === 0) {
+      game.replayFrames.push(game.getState());
+    }
+    
     ws.send(JSON.stringify({
       type: 'state',
       state: game.getState()
