@@ -1708,8 +1708,12 @@ if (spectateMode) {
 }
 
 async function initSpectateMode(sessionId) {
+  // Set game to running state for rendering
+  gameRunning = true;
+  gameOver = false;
+  
   // Hide game controls
-  document.getElementById('message').textContent = '👁️ SPECTATING...';
+  document.getElementById('message').textContent = '👁️ SPECTATING LIVE...';
   
   // Add spectate banner
   const banner = document.createElement('div');
@@ -1737,27 +1741,115 @@ async function spectateLoop(sessionId) {
   try {
     const res = await fetch(`/api/games/void-rush/${sessionId}/state`);
     if (!res.ok) {
-      document.getElementById('message').textContent = 'Session ended';
+      document.getElementById('message').textContent = 'Session ended or not found';
+      gameOver = true;
       return;
     }
     
     const state = await res.json();
     
-    // Update display
-    document.getElementById('scoreVal').textContent = state.score.toLocaleString();
-    document.getElementById('waveVal').textContent = state.wave;
-    document.getElementById('livesVal').textContent = '❤'.repeat(Math.max(0, state.lives)) + ' ' + '💣'.repeat(Math.max(0, state.bombs));
+    // Sync ALL game state for rendering
+    score = state.score;
+    lives = state.lives;
+    wave = state.wave;
+    bombs = state.bombs;
+    currentWeapon = state.weapon || 'SINGLE';
+    waveTransition = state.waveTransition;
+    
+    // Sync player position
+    player.x = state.player.x;
+    player.y = state.player.y;
+    player.invincible = state.player.invincible ? 60 : 0;
+    
+    // Sync enemies (convert from API format)
+    enemies = (state.enemies || []).map(e => ({
+      x: e.x,
+      y: e.y,
+      w: e.type === 'tank' ? 36 : (e.type === 'swarm' ? 18 : 26),
+      h: e.type === 'tank' ? 36 : (e.type === 'swarm' ? 18 : 26),
+      type: e.type,
+      hp: e.hp,
+      maxHp: e.maxHp,
+      color: getEnemyColor(e.type),
+      entered: true,
+      phase: Date.now() / 1000
+    }));
+    
+    // Sync boss
+    if (state.boss) {
+      boss = {
+        x: state.boss.x,
+        y: state.boss.y,
+        w: 110 + state.boss.level * 15,
+        h: 70 + state.boss.level * 8,
+        hp: state.boss.hp,
+        maxHp: state.boss.maxHp,
+        level: state.boss.level,
+        rage: state.boss.rage,
+        entered: true,
+        color: state.boss.rage ? '#ff0000' : '#ff0066'
+      };
+      bossDefeated = false;
+    } else {
+      boss = null;
+    }
+    
+    // Sync bullets (player)
+    bullets = (state.bullets || []).map(b => ({
+      x: b.x,
+      y: b.y,
+      dx: 0,
+      dy: -14,
+      damage: 1,
+      color: WEAPONS[currentWeapon]?.color || '#00ffaa'
+    }));
+    
+    // Sync enemy bullets
+    enemyBullets = (state.enemyBullets || []).map(b => ({
+      x: b.x,
+      y: b.y,
+      dx: 0,
+      dy: 4,
+      color: '#ff8844'
+    }));
+    
+    // Sync powerups
+    powerups = (state.powerups || []).map(p => ({
+      x: p.x,
+      y: p.y,
+      type: p.type,
+      pulse: Date.now() / 150
+    }));
+    
+    // Update HUD
+    updateHUD();
     
     if (state.state === 'game_over') {
-      document.getElementById('message').textContent = `GAME OVER - Score: ${state.score.toLocaleString()} - Wave ${state.wave}`;
+      gameOver = true;
+      document.getElementById('message').textContent = `🏁 GAME OVER - Score: ${state.score.toLocaleString()} - Wave ${state.wave}`;
       return;
     }
     
-    // Continue polling
-    setTimeout(() => spectateLoop(sessionId), 100);
+    // Continue polling (faster for smoother visuals)
+    setTimeout(() => spectateLoop(sessionId), 50);
   } catch (e) {
     document.getElementById('message').textContent = 'Connection lost';
+    console.error('Spectate error:', e);
   }
+}
+
+// Helper for enemy colors in spectate mode
+function getEnemyColor(type) {
+  const colors = {
+    scout: '#ff8844',
+    fighter: '#ffaa00',
+    bomber: '#ff6666',
+    elite: '#ff00ff',
+    tank: '#ff3366',
+    swarm: '#00ffff',
+    sniper: '#ffff00'
+  };
+  return colors[type] || '#ff8844';
 }
 </script>
 </body>
