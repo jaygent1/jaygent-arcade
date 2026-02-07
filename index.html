@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JAY GENT ARCADE</title>
+<meta name="description" content="Retro arcade games. Play VOID RUSH and BREAKER.">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #03030a;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    color: #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+  
+  header {
+    text-align: center;
+    margin-bottom: 60px;
+  }
+  
+  h1 {
+    font-size: 3rem;
+    color: #00ffaa;
+    text-shadow: 0 0 30px rgba(0, 255, 170, 0.5);
+    letter-spacing: 8px;
+    margin-bottom: 10px;
+  }
+  
+  .tagline {
+    color: #666;
+    font-size: 0.9rem;
+    letter-spacing: 4px;
+  }
+  
+  .games {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 400px));
+    gap: 30px;
+    max-width: 900px;
+    width: 100%;
+  }
+  
+  .game-card {
+    background: linear-gradient(180deg, #0a0a15 0%, #080812 100%);
+    border: 2px solid #1a1a2e;
+    border-radius: 12px;
+    padding: 30px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .game-card:hover {
+    border-color: #00ffaa;
+    transform: translateY(-5px);
+    box-shadow: 0 10px 40px rgba(0, 255, 170, 0.2);
+  }
+  
+  .game-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  
+  .game-card:hover::before {
+    opacity: 1;
+  }
+  
+  .game-card.void-rush { --accent: #00ffaa; }
+  .game-card.breaker { --accent: #ff6b6b; }
+  
+  .game-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: var(--accent);
+  }
+  
+  .game-genre {
+    font-size: 0.75rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 15px;
+  }
+  
+  .game-desc {
+    font-size: 0.9rem;
+    color: #888;
+    line-height: 1.5;
+    margin-bottom: 20px;
+  }
+  
+  .game-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .feature {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 20px;
+    color: #666;
+  }
+  
+  .play-btn {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 10px 24px;
+    background: var(--accent);
+    color: #000;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 0.85rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .game-card:hover .play-btn {
+    box-shadow: 0 0 20px var(--accent);
+  }
+  
+  footer {
+    margin-top: 80px;
+    text-align: center;
+    color: #444;
+    font-size: 0.8rem;
+  }
+  
+  footer a {
+    color: #666;
+    text-decoration: none;
+  }
+  
+  footer a:hover {
+    color: #00ffaa;
+  }
+  
+  .stats {
+    margin-top: 60px;
+    text-align: center;
+  }
+  
+  .stats h3 {
+    color: #444;
+    font-size: 0.8rem;
+    letter-spacing: 3px;
+    margin-bottom: 15px;
+  }
+  
+  .stats-grid {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+  }
+  
+  .stat {
+    text-align: center;
+  }
+  
+  .stat-value {
+    font-size: 2rem;
+    color: #00ffaa;
+    font-weight: bold;
+  }
+  
+  .stat-label {
+    font-size: 0.7rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎩 JAY GENT</h1>
+  <p class="tagline">ARCADE</p>
+</header>
+
+<div class="games">
+  <a href="/void-rush.html" class="game-card void-rush">
+    <div class="game-title">VOID RUSH</div>
+    <div class="game-genre">Space Shooter</div>
+    <p class="game-desc">
+      Endless waves of enemies. Boss battles every 5 waves. 
+      How long can you survive the void?
+    </p>
+    <div class="game-features">
+      <span class="feature">Infinite Waves</span>
+      <span class="feature">6 Weapons</span>
+      <span class="feature">Boss Fights</span>
+      <span class="feature">Leaderboard</span>
+    </div>
+    <span class="play-btn">PLAY NOW</span>
+  </a>
+  
+  <a href="/breaker.html" class="game-card breaker">
+    <div class="game-title">BREAKER</div>
+    <div class="game-genre">Brick Breaker</div>
+    <p class="game-desc">
+      Classic arcade action with power-ups, combos, and 
+      10 levels of brick-breaking chaos.
+    </p>
+    <div class="game-features">
+      <span class="feature">10 Levels</span>
+      <span class="feature">6 Power-ups</span>
+      <span class="feature">Combos</span>
+      <span class="feature">Leaderboard</span>
+    </div>
+    <span class="play-btn">PLAY NOW</span>
+  </a>
+</div>
+
+<div class="stats">
+  <h3>GLOBAL STATS</h3>
+  <div class="stats-grid">
+    <div class="stat">
+      <div class="stat-value" id="totalPlayers">-</div>
+      <div class="stat-label">Players</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="highestWave">-</div>
+      <div class="stat-label">Highest Wave</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="topScore">-</div>
+      <div class="stat-label">Top Score</div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p>Built by <a href="https://github.com/jaygent">Jay Gent</a> 🎩</p>
+</footer>
+
+<script>
+// Fetch stats
+fetch('/api/scores')
+  .then(r => r.json())
+  .then(scores => {
+    if (scores.length > 0) {
+      document.getElementById('totalPlayers').textContent = new Set(scores.map(s => s.name)).size;
+      document.getElementById('highestWave').textContent = Math.max(...scores.map(s => s.wave));
+      document.getElementById('topScore').textContent = Math.max(...scores.map(s => s.score)).toLocaleString();
+    }
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
