@@ -193,7 +193,13 @@ let audioCtx = null;
 let muted = false;
 
 function initAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) {
+      console.warn('Audio init failed:', e);
+    }
+  }
 }
 
 function playSound(freq, duration, type = 'square', vol = 0.15) {
@@ -367,8 +373,8 @@ function move() {
   
   // Check food collision
   if (newHead.x === food.x && newHead.y === food.y) {
-    const foodType = FOOD_TYPES[food.type];
-    score += foodType.points * speed;
+    const foodType = FOOD_TYPES[food.type] || FOOD_TYPES.normal;
+    score += (foodType.points || 10) * speed;
     
     // Apply effect
     if (foodType.effect === 'speed') {
@@ -510,11 +516,15 @@ function draw() {
     p.dy += 0.1;
     p.life--;
     
-    ctx.globalAlpha = p.life / 35;
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size * (p.life / 35), 0, Math.PI * 2);
-    ctx.fill();
+    if (p.life > 0) {
+      const alpha = Math.max(0, Math.min(1, p.life / 35));
+      const radius = Math.max(0.1, p.size * (p.life / 35));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color || '#fff';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
     
     return p.life > 0;
   });
@@ -694,14 +704,18 @@ document.getElementById('playerName').addEventListener('keydown', e => {
 
 // Game loop
 function gameLoop(time) {
-  const interval = baseInterval / speed;
-  
-  if (time - lastMove > interval) {
-    move();
-    lastMove = time;
+  try {
+    const interval = baseInterval / speed;
+    
+    if (time - lastMove > interval) {
+      move();
+      lastMove = time;
+    }
+    
+    draw();
+  } catch(e) {
+    console.error('Game loop error:', e);
   }
-  
-  draw();
   requestAnimationFrame(gameLoop);
 }
 
