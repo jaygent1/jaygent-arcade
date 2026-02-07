@@ -1765,14 +1765,21 @@ async function initSpectateMode(sessionId) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'state' || msg.state) {
+        
+        // Handle full state
+        if (msg.type === 'full' || msg.type === 'state' || msg.state) {
           const state = msg.state || msg;
           updateSpectateState(state);
         }
+        // Handle diff (compact format)
+        else if (msg.type === 'diff') {
+          applyStateDiff(msg);
+        }
+        // Handle game over
         if (msg.type === 'game_over') {
           handleSpectateGameOver(msg.state || msg.results);
         }
-      } catch (e) {}
+      } catch (e) { console.error('WS parse error:', e); }
     };
     
     ws.onerror = () => {
@@ -1843,6 +1850,83 @@ function updateSpectateState(state) {
   bombs = state.bombs;
   currentWeapon = state.weapon || 'SINGLE';
   waveTransition = state.waveTransition;
+  updateHUD();
+  
+  // Update stats display
+  const statsEl = document.getElementById('spectate-stats');
+  if (statsEl) {
+    statsEl.textContent = `Score: ${state.score.toLocaleString()} | Wave ${state.wave}`;
+  }
+}
+
+// Enemy type lookup from first char
+const ENEMY_TYPE_MAP = { s: 'scout', f: 'fighter', b: 'bomber', e: 'elite', t: 'tank', w: 'swarm', n: 'sniper' };
+const POWERUP_TYPE_MAP = { w: 'weapon', l: 'life', b: 'bomb', s: 'shield' };
+
+// Apply compact diff to current state
+function applyStateDiff(diff) {
+  if (!spectateState.current) return;
+  
+  // Store previous for interpolation
+  spectateState.previous = JSON.parse(JSON.stringify(spectateState.current));
+  const state = spectateState.current;
+  
+  // Apply scalar changes
+  if (diff.s !== undefined) { state.score = diff.s; score = diff.s; }
+  if (diff.l !== undefined) { state.lives = diff.l; lives = diff.l; }
+  if (diff.w !== undefined) { state.wave = diff.w; wave = diff.w; }
+  if (diff.b !== undefined) { state.bombs = diff.b; bombs = diff.b; }
+  if (diff.wp !== undefined) { state.weapon = diff.wp; currentWeapon = diff.wp; }
+  if (diff.wt !== undefined) { state.waveTransition = diff.wt; waveTransition = diff.wt; }
+  
+  // Apply player position [x, y, invincible]
+  if (diff.p) {
+    state.player = { x: diff.p[0], y: diff.p[1], invincible: diff.p[2] === 1 };
+  }
+  
+  // Apply enemies [[x,y,type,hp], ...]
+  if (diff.e !== undefined) {
+    state.enemies = diff.e.map(e => ({
+      x: e[0], y: e[1],
+      type: ENEMY_TYPE_MAP[e[2]] || 'scout',
+      hp: e[3], maxHp: e[3]
+    }));
+  }
+  
+  // Apply boss [x, y, hp, rage]
+  if (diff.bo !== undefined) {
+    if (diff.bo === null) {
+      state.boss = null;
+    } else {
+      state.boss = {
+        x: diff.bo[0], y: diff.bo[1],
+        hp: diff.bo[2], maxHp: diff.bo[2],
+        rage: diff.bo[3] === 1,
+        level: state.boss?.level || 1
+      };
+    }
+  }
+  
+  // Apply bullets [[x,y], ...]
+  if (diff.bl !== undefined) {
+    state.bullets = diff.bl.map(b => ({ x: b[0], y: b[1] }));
+  }
+  
+  // Apply enemy bullets
+  if (diff.eb !== undefined) {
+    state.enemyBullets = diff.eb.map(b => ({ x: b[0], y: b[1] }));
+  }
+  
+  // Apply powerups [[x,y,type], ...]
+  if (diff.pw !== undefined) {
+    state.powerups = diff.pw.map(p => ({
+      x: p[0], y: p[1],
+      type: POWERUP_TYPE_MAP[p[2]] || 'weapon'
+    }));
+  }
+  
+  spectateState.lastUpdate = performance.now();
+  spectateState.interpolationFactor = 0;
   updateHUD();
   
   // Update stats display

@@ -434,8 +434,166 @@ const server = http.createServer((req, res) => {
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ server });
 
-// Track spectators per session
-const spectators = new Map(); // sessionId -> Set of WebSocket clients
+// ============================================
+// Performance: Centralized Broadcast System
+// ============================================
+
+// Track spectators per session: sessionId -> { clients: Set, lastState, broadcastLoop }
+const sessionBroadcasters = new Map();
+
+// State diffing: compute minimal delta between states
+function computeStateDiff(prev, curr) {
+  if (!prev) return { type: 'full', state: curr };
+  
+  const diff = { type: 'diff' };
+  let hasChanges = false;
+  
+  // Always include tick for ordering
+  diff.t = curr.ticks;
+  
+  // Score/lives/wave/bombs - only if changed
+  if (prev.score !== curr.score) { diff.s = curr.score; hasChanges = true; }
+  if (prev.lives !== curr.lives) { diff.l = curr.lives; hasChanges = true; }
+  if (prev.wave !== curr.wave) { diff.w = curr.wave; hasChanges = true; }
+  if (prev.bombs !== curr.bombs) { diff.b = curr.bombs; hasChanges = true; }
+  if (prev.weapon !== curr.weapon) { diff.wp = curr.weapon; hasChanges = true; }
+  if (prev.waveTransition !== curr.waveTransition) { diff.wt = curr.waveTransition; hasChanges = true; }
+  
+  // Player position - compact format [x, y, invincible]
+  if (prev.player.x !== curr.player.x || prev.player.y !== curr.player.y || prev.player.invincible !== curr.player.invincible) {
+    diff.p = [Math.round(curr.player.x), Math.round(curr.player.y), curr.player.invincible ? 1 : 0];
+    hasChanges = true;
+  }
+  
+  // Enemies - compact format [[x,y,type,hp], ...]
+  const currEnemies = (curr.enemies || []).map(e => [Math.round(e.x), Math.round(e.y), e.type[0], e.hp]);
+  const prevEnemies = (prev.enemies || []).map(e => [Math.round(e.x), Math.round(e.y), e.type[0], e.hp]);
+  if (JSON.stringify(currEnemies) !== JSON.stringify(prevEnemies)) {
+    diff.e = currEnemies;
+    hasChanges = true;
+  }
+  
+  // Boss - compact format [x, y, hp, rage]
+  if (curr.boss) {
+    const currBoss = [Math.round(curr.boss.x), Math.round(curr.boss.y), curr.boss.hp, curr.boss.rage ? 1 : 0];
+    const prevBoss = prev.boss ? [Math.round(prev.boss.x), Math.round(prev.boss.y), prev.boss.hp, prev.boss.rage ? 1 : 0] : null;
+    if (JSON.stringify(currBoss) !== JSON.stringify(prevBoss)) {
+      diff.bo = currBoss;
+      hasChanges = true;
+    }
+  } else if (prev.boss) {
+    diff.bo = null;
+    hasChanges = true;
+  }
+  
+  // Bullets - compact [[x,y], ...]
+  const currBullets = (curr.bullets || []).map(b => [Math.round(b.x), Math.round(b.y)]);
+  const prevBullets = (prev.bullets || []).map(b => [Math.round(b.x), Math.round(b.y)]);
+  if (JSON.stringify(currBullets) !== JSON.stringify(prevBullets)) {
+    diff.bl = currBullets;
+    hasChanges = true;
+  }
+  
+  // Enemy bullets
+  const currEBullets = (curr.enemyBullets || []).map(b => [Math.round(b.x), Math.round(b.y)]);
+  const prevEBullets = (prev.enemyBullets || []).map(b => [Math.round(b.x), Math.round(b.y)]);
+  if (JSON.stringify(currEBullets) !== JSON.stringify(prevEBullets)) {
+    diff.eb = currEBullets;
+    hasChanges = true;
+  }
+  
+  // Powerups
+  const currPowerups = (curr.powerups || []).map(p => [Math.round(p.x), Math.round(p.y), p.type[0]]);
+  const prevPowerups = (prev.powerups || []).map(p => [Math.round(p.x), Math.round(p.y), p.type[0]]);
+  if (JSON.stringify(currPowerups) !== JSON.stringify(prevPowerups)) {
+    diff.pw = currPowerups;
+    hasChanges = true;
+  }
+  
+  return hasChanges ? diff : null;
+}
+
+// Start centralized broadcast loop for a session
+function startBroadcaster(sessionId) {
+  if (sessionBroadcasters.has(sessionId)) return sessionBroadcasters.get(sessionId);
+  
+  const broadcaster = {
+    clients: new Set(),
+    lastState: null,
+    lastBroadcast: null,
+    loop: null,
+    stats: { frames: 0, bytes: 0, diffs: 0, fulls: 0 }
+  };
+  
+  broadcaster.loop = setInterval(() => {
+    const game = sessions.get(sessionId);
+    if (!game || broadcaster.clients.size === 0) {
+      stopBroadcaster(sessionId);
+      return;
+    }
+    
+    if (game.state === 'game_over') {
+      const msg = JSON.stringify({
+        type: 'game_over',
+        state: game.getState(),
+        results: game.getResults()
+      });
+      broadcast(broadcaster, msg);
+      stopBroadcaster(sessionId);
+      return;
+    }
+    
+    const currentState = game.getState();
+    const diff = computeStateDiff(broadcaster.lastState, currentState);
+    
+    if (diff) {
+      const msg = JSON.stringify(diff);
+      broadcast(broadcaster, msg);
+      broadcaster.stats.frames++;
+      broadcaster.stats.bytes += msg.length;
+      if (diff.type === 'diff') broadcaster.stats.diffs++;
+      else broadcaster.stats.fulls++;
+    }
+    
+    broadcaster.lastState = currentState;
+  }, 33); // ~30fps
+  
+  sessionBroadcasters.set(sessionId, broadcaster);
+  console.log(`Broadcaster started: ${sessionId}`);
+  return broadcaster;
+}
+
+function stopBroadcaster(sessionId) {
+  const broadcaster = sessionBroadcasters.get(sessionId);
+  if (broadcaster) {
+    clearInterval(broadcaster.loop);
+    // Log stats
+    const s = broadcaster.stats;
+    if (s.frames > 0) {
+      console.log(`Broadcaster ${sessionId}: ${s.frames} frames, ${(s.bytes/1024).toFixed(1)}KB, ${s.diffs} diffs, ${s.fulls} fulls`);
+    }
+    sessionBroadcasters.delete(sessionId);
+  }
+}
+
+function broadcast(broadcaster, msg) {
+  const dead = [];
+  for (const ws of broadcaster.clients) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+    } else {
+      dead.push(ws);
+    }
+  }
+  // Clean up dead connections
+  for (const ws of dead) {
+    broadcaster.clients.delete(ws);
+  }
+}
+
+// ============================================
+// WebSocket Connection Handler
+// ============================================
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -453,59 +611,33 @@ wss.on('connection', (ws, req) => {
     return;
   }
   
-  // Handle spectator connections
+  // Handle spectator connections - use centralized broadcaster
   if (isSpectator) {
-    console.log(`Spectator connected: ${sessionId}`);
+    const broadcaster = startBroadcaster(sessionId);
+    broadcaster.clients.add(ws);
     
-    // Add to spectators set
-    if (!spectators.has(sessionId)) {
-      spectators.set(sessionId, new Set());
-    }
-    spectators.get(sessionId).add(ws);
-    
-    // Send current state immediately
+    // Send full state immediately
     ws.send(JSON.stringify({
-      type: 'state',
+      type: 'full',
       state: game.getState()
     }));
     
-    // Stream state updates to spectator
-    let running = true;
-    const spectateLoop = setInterval(() => {
-      if (!running || ws.readyState !== WebSocket.OPEN) {
-        clearInterval(spectateLoop);
-        return;
-      }
-      
-      if (game.state === 'game_over') {
-        ws.send(JSON.stringify({
-          type: 'game_over',
-          state: game.getState(),
-          results: game.getResults()
-        }));
-        clearInterval(spectateLoop);
-        return;
-      }
-      
-      // Just send current state (don't tick - player/AI does that)
-      ws.send(JSON.stringify({
-        type: 'state',
-        state: game.getState()
-      }));
-    }, 33); // ~30fps state updates
+    console.log(`Spectator joined ${sessionId} (${broadcaster.clients.size} total)`);
     
     ws.on('close', () => {
-      running = false;
-      spectators.get(sessionId)?.delete(ws);
-      console.log(`Spectator disconnected: ${sessionId}`);
+      broadcaster.clients.delete(ws);
+      console.log(`Spectator left ${sessionId} (${broadcaster.clients.size} remaining)`);
+      if (broadcaster.clients.size === 0) {
+        stopBroadcaster(sessionId);
+      }
     });
     
-    return; // Don't run player logic for spectators
+    return;
   }
   
-  console.log(`WebSocket player connected: ${sessionId}`);
+  // Player mode - direct connection with game loop
+  console.log(`Player connected: ${sessionId}`);
   
-  // Game loop for this connection (player mode)
   let running = true;
   const loop = setInterval(() => {
     if (!running || game.state === 'game_over') {
@@ -534,7 +666,6 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data);
-      
       if (msg.type === 'input') {
         game.setInput(msg.input || msg);
       }
@@ -544,7 +675,7 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     running = false;
     clearInterval(loop);
-    console.log(`WebSocket disconnected: ${sessionId}`);
+    console.log(`Player disconnected: ${sessionId}`);
   });
 });
 
