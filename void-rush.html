@@ -1378,6 +1378,7 @@ requestAnimationFrame(gameLoop);
 const urlParams = new URLSearchParams(window.location.search);
 const challengeMode = urlParams.get('challenge');
 const spectateMode = urlParams.get('spectate');
+const replayMode = urlParams.get('replay');
 
 let aiSession = null;
 let aiState = null;
@@ -1850,6 +1851,190 @@ function getEnemyColor(type) {
     sniper: '#ffff00'
   };
   return colors[type] || '#ff8844';
+}
+
+// ============================================
+// REPLAY MODE
+// ============================================
+
+if (replayMode) {
+  initReplayMode(replayMode);
+}
+
+async function initReplayMode(replayId) {
+  gameRunning = true;
+  gameOver = false;
+  
+  document.getElementById('message').textContent = '📼 LOADING REPLAY...';
+  
+  try {
+    const res = await fetch(`/api/replays/${replayId}`);
+    if (!res.ok) {
+      document.getElementById('message').textContent = 'Replay not found';
+      return;
+    }
+    
+    const replay = await res.json();
+    
+    // Add replay banner with controls
+    const banner = document.createElement('div');
+    banner.id = 'replay-banner';
+    banner.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(90deg, #f59e0b, #ef4444);
+      color: white;
+      text-align: center;
+      padding: 10px;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      z-index: 300;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+    `;
+    banner.innerHTML = `
+      <span>📼 REPLAY: ${replay.playerId} | Score: ${replay.score.toLocaleString()} | Wave ${replay.wave}</span>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button id="replay-slower" style="padding:5px 10px;cursor:pointer;">⏪ 0.5x</button>
+        <button id="replay-play" style="padding:5px 10px;cursor:pointer;">⏸️</button>
+        <button id="replay-faster" style="padding:5px 10px;cursor:pointer;">2x ⏩</button>
+        <span id="replay-progress">0 / ${replay.frames.length}</span>
+        <button onclick="window.location.href='/spectate.html'" style="padding:5px 15px;cursor:pointer;">EXIT</button>
+      </div>
+    `;
+    document.body.appendChild(banner);
+    
+    document.getElementById('message').textContent = '📼 PLAYING REPLAY...';
+    
+    // Replay state
+    let frameIndex = 0;
+    let playing = true;
+    let speed = 1;
+    const baseInterval = 50; // ms per frame
+    
+    // Controls
+    document.getElementById('replay-play').addEventListener('click', () => {
+      playing = !playing;
+      document.getElementById('replay-play').textContent = playing ? '⏸️' : '▶️';
+    });
+    
+    document.getElementById('replay-slower').addEventListener('click', () => {
+      speed = Math.max(0.25, speed / 2);
+      updateSpeedButtons();
+    });
+    
+    document.getElementById('replay-faster').addEventListener('click', () => {
+      speed = Math.min(4, speed * 2);
+      updateSpeedButtons();
+    });
+    
+    function updateSpeedButtons() {
+      document.getElementById('replay-slower').textContent = `⏪ ${speed <= 0.5 ? speed : 0.5}x`;
+      document.getElementById('replay-faster').textContent = `${speed >= 2 ? speed : 2}x ⏩`;
+    }
+    
+    // Playback loop
+    function playFrame() {
+      if (!playing) {
+        setTimeout(playFrame, 100);
+        return;
+      }
+      
+      if (frameIndex >= replay.frames.length) {
+        document.getElementById('message').textContent = `🏁 REPLAY ENDED - Score: ${replay.score.toLocaleString()} - Wave ${replay.wave}`;
+        return;
+      }
+      
+      const state = replay.frames[frameIndex];
+      renderState(state);
+      
+      document.getElementById('replay-progress').textContent = `${frameIndex + 1} / ${replay.frames.length}`;
+      frameIndex++;
+      
+      setTimeout(playFrame, baseInterval / speed);
+    }
+    
+    playFrame();
+    
+  } catch (e) {
+    document.getElementById('message').textContent = 'Failed to load replay';
+    console.error('Replay error:', e);
+  }
+}
+
+// Shared state renderer for spectate/replay
+function renderState(state) {
+  score = state.score;
+  lives = state.lives;
+  wave = state.wave;
+  bombs = state.bombs;
+  currentWeapon = state.weapon || 'SINGLE';
+  waveTransition = state.waveTransition;
+  
+  player.x = state.player.x;
+  player.y = state.player.y;
+  player.invincible = state.player.invincible ? 60 : 0;
+  
+  enemies = (state.enemies || []).map(e => ({
+    x: e.x,
+    y: e.y,
+    w: e.type === 'tank' ? 36 : (e.type === 'swarm' ? 18 : 26),
+    h: e.type === 'tank' ? 36 : (e.type === 'swarm' ? 18 : 26),
+    type: e.type,
+    hp: e.hp,
+    maxHp: e.maxHp,
+    color: getEnemyColor(e.type),
+    entered: true,
+    phase: Date.now() / 1000
+  }));
+  
+  if (state.boss) {
+    boss = {
+      x: state.boss.x,
+      y: state.boss.y,
+      w: 110 + state.boss.level * 15,
+      h: 70 + state.boss.level * 8,
+      hp: state.boss.hp,
+      maxHp: state.boss.maxHp,
+      level: state.boss.level,
+      rage: state.boss.rage,
+      entered: true,
+      color: state.boss.rage ? '#ff0000' : '#ff0066'
+    };
+    bossDefeated = false;
+  } else {
+    boss = null;
+  }
+  
+  bullets = (state.bullets || []).map(b => ({
+    x: b.x,
+    y: b.y,
+    dx: 0,
+    dy: -14,
+    damage: 1,
+    color: WEAPONS[currentWeapon]?.color || '#00ffaa'
+  }));
+  
+  enemyBullets = (state.enemyBullets || []).map(b => ({
+    x: b.x,
+    y: b.y,
+    dx: 0,
+    dy: 4,
+    color: '#ff8844'
+  }));
+  
+  powerups = (state.powerups || []).map(p => ({
+    x: p.x,
+    y: p.y,
+    type: p.type,
+    pulse: Date.now() / 150
+  }));
+  
+  updateHUD();
 }
 </script>
 </body>

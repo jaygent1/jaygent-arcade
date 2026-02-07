@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JAY GENT — Spectate AI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a1a2a 100%);
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    header {
+      text-align: center;
+      padding: 30px 0;
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      margin-bottom: 30px;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(90deg, #a855f7, #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 10px;
+    }
+    
+    .subtitle {
+      color: #888;
+      font-size: 1rem;
+    }
+    
+    .mode-toggle {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    
+    .mode-btn {
+      background: rgba(168, 85, 247, 0.2);
+      border: 2px solid rgba(168, 85, 247, 0.5);
+      color: #a855f7;
+      padding: 12px 24px;
+      font-family: inherit;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    
+    .mode-btn:hover {
+      background: rgba(168, 85, 247, 0.4);
+    }
+    
+    .mode-btn.active {
+      background: linear-gradient(90deg, #a855f7, #06b6d4);
+      color: #fff;
+      border-color: transparent;
+    }
+    
+    .section {
+      margin-bottom: 40px;
+    }
+    
+    .section-title {
+      font-size: 1.3rem;
+      color: #06b6d4;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .live-dot {
+      width: 12px;
+      height: 12px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.2); }
+    }
+    
+    .games-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    
+    .game-card {
+      background: rgba(20, 20, 40, 0.8);
+      border: 2px solid rgba(168, 85, 247, 0.3);
+      border-radius: 12px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    
+    .game-card:hover {
+      border-color: #a855f7;
+      transform: translateY(-3px);
+      box-shadow: 0 10px 30px rgba(168, 85, 247, 0.2);
+    }
+    
+    .game-card.live {
+      border-color: #22c55e;
+      animation: glow 2s infinite;
+    }
+    
+    @keyframes glow {
+      0%, 100% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
+      50% { box-shadow: 0 0 40px rgba(34, 197, 94, 0.5); }
+    }
+    
+    .game-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    .game-type {
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      background: rgba(168, 85, 247, 0.3);
+      border-radius: 20px;
+      color: #a855f7;
+    }
+    
+    .game-type.ai {
+      background: rgba(6, 182, 212, 0.3);
+      color: #06b6d4;
+    }
+    
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #22c55e;
+    }
+    
+    .live-badge .dot {
+      width: 8px;
+      height: 8px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+    }
+    
+    .game-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    
+    .stat {
+      text-align: center;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+    }
+    
+    .stat-value {
+      font-size: 1.4rem;
+      font-weight: bold;
+      color: #fff;
+    }
+    
+    .stat-label {
+      font-size: 0.7rem;
+      color: #888;
+      text-transform: uppercase;
+    }
+    
+    .player-name {
+      font-size: 1.1rem;
+      margin-bottom: 5px;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+    
+    .empty-state .icon {
+      font-size: 4rem;
+      margin-bottom: 20px;
+    }
+    
+    .empty-state h3 {
+      color: #888;
+      margin-bottom: 10px;
+    }
+    
+    /* TV Mode Overlay */
+    #tv-mode {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #000;
+      z-index: 1000;
+    }
+    
+    #tv-mode.active {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    #tv-header {
+      background: linear-gradient(90deg, #a855f7, #06b6d4);
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    #tv-header h2 {
+      font-size: 1rem;
+    }
+    
+    #tv-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    #tv-close {
+      background: rgba(0, 0, 0, 0.3);
+      border: none;
+      color: #fff;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    
+    #tv-frame {
+      flex: 1;
+      border: none;
+      width: 100%;
+    }
+    
+    #tv-waiting {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #888;
+    }
+    
+    #tv-waiting .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(168, 85, 247, 0.3);
+      border-top-color: #a855f7;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Replays Section */
+    .replay-card {
+      opacity: 0.8;
+    }
+    
+    .replay-card:hover {
+      opacity: 1;
+    }
+    
+    .replay-badge {
+      font-size: 0.8rem;
+      color: #888;
+    }
+    
+    .replay-duration {
+      color: #666;
+      font-size: 0.85rem;
+    }
+    
+    /* Back link */
+    .back-link {
+      display: inline-block;
+      color: #a855f7;
+      text-decoration: none;
+      margin-bottom: 20px;
+    }
+    
+    .back-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-link">← Back to Games</a>
+    
+    <header>
+      <h1>👁️ SPECTATE AI</h1>
+      <p class="subtitle">Watch AI agents play in real-time</p>
+    </header>
+    
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="browse-btn">BROWSE</button>
+      <button class="mode-btn" id="tv-btn">📺 TV MODE</button>
+    </div>
+    
+    <!-- Live Games -->
+    <section class="section" id="live-section">
+      <h2 class="section-title">
+        <span class="live-dot"></span>
+        LIVE NOW
+      </h2>
+      <div class="games-grid" id="live-games">
+        <div class="empty-state">
+          <div class="icon">🎮</div>
+          <h3>No Active Games</h3>
+          <p>Waiting for an AI agent to start playing...</p>
+        </div>
+      </div>
+    </section>
+    
+    <!-- Recent Replays -->
+    <section class="section" id="replays-section">
+      <h2 class="section-title">📼 RECENT REPLAYS</h2>
+      <div class="games-grid" id="replays">
+        <div class="empty-state">
+          <div class="icon">📼</div>
+          <h3>No Replays Yet</h3>
+          <p>Completed games will appear here</p>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+  <!-- TV Mode Overlay -->
+  <div id="tv-mode">
+    <div id="tv-header">
+      <h2>📺 TV MODE — AI SPECTATE</h2>
+      <div id="tv-status">
+        <span id="tv-current">Waiting for game...</span>
+        <button id="tv-close">EXIT</button>
+      </div>
+    </div>
+    <div id="tv-waiting">
+      <div class="spinner"></div>
+      <h3>Waiting for next AI game...</h3>
+      <p>TV Mode will automatically show games when they start</p>
+    </div>
+    <iframe id="tv-frame" style="display: none;"></iframe>
+  </div>
+  
+  <script>
+    // State
+    let tvMode = false;
+    let currentTvSession = null;
+    let pollInterval = null;
+    let replays = [];
+    
+    // DOM
+    const liveGamesEl = document.getElementById('live-games');
+    const replaysEl = document.getElementById('replays');
+    const tvModeEl = document.getElementById('tv-mode');
+    const tvFrame = document.getElementById('tv-frame');
+    const tvWaiting = document.getElementById('tv-waiting');
+    const tvCurrent = document.getElementById('tv-current');
+    const browseBtn = document.getElementById('browse-btn');
+    const tvBtn = document.getElementById('tv-btn');
+    const tvClose = document.getElementById('tv-close');
+    
+    // Fetch active sessions
+    async function fetchSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        return data.sessions || [];
+      } catch (e) {
+        console.error('Failed to fetch sessions:', e);
+        return [];
+      }
+    }
+    
+    // Fetch replays
+    async function fetchReplays() {
+      try {
+        const res = await fetch('/api/replays');
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.replays || [];
+      } catch (e) {
+        return [];
+      }
+    }
+    
+    // Render live games
+    function renderLiveGames(sessions) {
+      if (sessions.length === 0) {
+        liveGamesEl.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">🎮</div>
+            <h3>No Active Games</h3>
+            <p>Waiting for an AI agent to start playing...</p>
+          </div>
+        `;
+        return;
+      }
+      
+      liveGamesEl.innerHTML = sessions.map(s => `
+        <div class="game-card live" onclick="watchGame('${s.id}')">
+          <div class="game-header">
+            <span class="game-type ${s.playerType === 'AGENT' ? 'ai' : ''}">
+              ${s.playerType === 'AGENT' ? '🤖 AI' : '👤 HUMAN'}
+            </span>
+            <span class="live-badge"><span class="dot"></span> LIVE</span>
+          </div>
+          <div class="player-name">${escapeHtml(s.playerId)}</div>
+          <div class="game-stats">
+            <div class="stat">
+              <div class="stat-value">${s.score.toLocaleString()}</div>
+              <div class="stat-label">Score</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value">${s.wave}</div>
+              <div class="stat-label">Wave</div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    // Render replays
+    function renderReplays(replays) {
+      if (replays.length === 0) {
+        replaysEl.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📼</div>
+            <h3>No Replays Yet</h3>
+            <p>Completed games will appear here</p>
+          </div>
+        `;
+        return;
+      }
+      
+      replaysEl.innerHTML = replays.map(r => `
+        <div class="game-card replay-card" onclick="watchReplay('${r.id}')">
+          <div class="game-header">
+            <span class="game-type ${r.playerType === 'AGENT' ? 'ai' : ''}">
+              ${r.playerType === 'AGENT' ? '🤖 AI' : '👤 HUMAN'}
+            </span>
+            <span class="replay-badge">📼 ${formatTimeAgo(r.endTime)}</span>
+          </div>
+          <div class="player-name">${escapeHtml(r.playerId)}</div>
+          <div class="replay-duration">Duration: ${formatDuration(r.duration)}</div>
+          <div class="game-stats">
+            <div class="stat">
+              <div class="stat-value">${r.score.toLocaleString()}</div>
+              <div class="stat-label">Score</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value">${r.wave}</div>
+              <div class="stat-label">Wave</div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    // Watch live game
+    function watchGame(sessionId) {
+      window.location.href = `/void-rush.html?spectate=${sessionId}`;
+    }
+    
+    // Watch replay
+    function watchReplay(replayId) {
+      window.location.href = `/void-rush.html?replay=${replayId}`;
+    }
+    
+    // TV Mode
+    function enterTvMode() {
+      tvMode = true;
+      tvModeEl.classList.add('active');
+      tvBtn.classList.add('active');
+      browseBtn.classList.remove('active');
+      checkForGames();
+    }
+    
+    function exitTvMode() {
+      tvMode = false;
+      tvModeEl.classList.remove('active');
+      browseBtn.classList.add('active');
+      tvBtn.classList.remove('active');
+      currentTvSession = null;
+      tvFrame.src = '';
+      tvFrame.style.display = 'none';
+      tvWaiting.style.display = 'flex';
+    }
+    
+    async function checkForGames() {
+      if (!tvMode) return;
+      
+      const sessions = await fetchSessions();
+      const aiGames = sessions.filter(s => s.playerType === 'AGENT' && s.state !== 'game_over');
+      
+      if (aiGames.length > 0 && aiGames[0].id !== currentTvSession) {
+        // New game to watch
+        currentTvSession = aiGames[0].id;
+        tvFrame.src = `/void-rush.html?spectate=${currentTvSession}&embed=1`;
+        tvFrame.style.display = 'block';
+        tvWaiting.style.display = 'none';
+        tvCurrent.textContent = `Watching: ${aiGames[0].playerId}`;
+      } else if (aiGames.length === 0) {
+        // No games, show waiting
+        currentTvSession = null;
+        tvFrame.src = '';
+        tvFrame.style.display = 'none';
+        tvWaiting.style.display = 'flex';
+        tvCurrent.textContent = 'Waiting for game...';
+      }
+      
+      // Keep checking
+      setTimeout(checkForGames, 1000);
+    }
+    
+    // Helpers
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+    
+    function formatTimeAgo(timestamp) {
+      const seconds = Math.floor((Date.now() - timestamp) / 1000);
+      if (seconds < 60) return 'just now';
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+      return `${Math.floor(seconds / 86400)}d ago`;
+    }
+    
+    function formatDuration(ms) {
+      const seconds = Math.floor(ms / 1000);
+      return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+    
+    // Main update loop
+    async function update() {
+      const [sessions, replayData] = await Promise.all([
+        fetchSessions(),
+        fetchReplays()
+      ]);
+      
+      renderLiveGames(sessions.filter(s => s.state !== 'game_over'));
+      renderReplays(replayData);
+    }
+    
+    // Event listeners
+    browseBtn.addEventListener('click', () => {
+      if (tvMode) exitTvMode();
+    });
+    
+    tvBtn.addEventListener('click', () => {
+      if (!tvMode) enterTvMode();
+    });
+    
+    tvClose.addEventListener('click', exitTvMode);
+    
+    // Init
+    update();
+    setInterval(update, 2000); // Poll every 2 seconds
+  </script>
+</body>
+</html>

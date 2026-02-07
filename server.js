@@ -19,6 +19,38 @@ const SCORES_FILE = path.join(__dirname, 'scores.json');
 const sessions = new Map(); // sessionId -> game instance
 const apiKeys = new Map();  // apiKey -> agentInfo
 
+// ============================================
+// Replay Storage (in-memory, last 20 games)
+// ============================================
+
+const MAX_REPLAYS = 20;
+const replays = []; // { id, playerId, playerType, score, wave, duration, endTime, frames: [...] }
+
+function saveReplay(game) {
+  // Only save AI games with some frames
+  if (!game.replayFrames || game.replayFrames.length < 10) return;
+  
+  const replay = {
+    id: game.id,
+    playerId: game.playerId,
+    playerType: game.playerType,
+    score: game.score,
+    wave: game.wave,
+    duration: Date.now() - game.createdAt,
+    endTime: Date.now(),
+    frames: game.replayFrames
+  };
+  
+  replays.unshift(replay);
+  
+  // Trim to max
+  while (replays.length > MAX_REPLAYS) {
+    replays.pop();
+  }
+  
+  console.log(`Replay saved: ${game.id} (${replays.length} total)`);
+}
+
 // Clean up old sessions every 5 minutes
 setInterval(() => {
   const now = Date.now();
@@ -164,10 +196,14 @@ const server = http.createServer((req, res) => {
         const playerType = data.playerType || 'AGENT';
         
         const game = new VoidRushGame(playerId, playerType);
+        game.replayFrames = []; // Initialize replay storage
         sessions.set(game.id, game);
         
         // Run initial tick to set up
         game.tick();
+        
+        // Record initial frame
+        game.replayFrames.push(game.getState());
         
         return json({
           sessionId: game.id,
@@ -222,12 +258,23 @@ const server = http.createServer((req, res) => {
         const ticks = Math.min(data.ticks || 1, 10); // Max 10 ticks per request
         for (let i = 0; i < ticks; i++) {
           game.tick();
+          
+          // Record frame for replay (sample every 3rd frame to reduce size)
+          if (game.replayFrames && game.replayFrames.length % 3 === 0) {
+            game.replayFrames.push(game.getState());
+          }
+          
           if (game.state === 'game_over') break;
         }
         
         const response = { state: game.getState() };
         
         if (game.state === 'game_over') {
+          // Save replay before cleanup
+          if (game.replayFrames) {
+            game.replayFrames.push(game.getState()); // Final frame
+            saveReplay(game);
+          }
           response.gameOver = true;
           response.results = game.getResults();
         }
@@ -248,6 +295,12 @@ const server = http.createServer((req, res) => {
         const name = data.name || game.playerId.slice(0, 3).toUpperCase();
         
         const results = game.getResults();
+        
+        // Save replay before cleanup
+        if (game.replayFrames) {
+          game.replayFrames.push(game.getState());
+          saveReplay(game);
+        }
         
         // Submit to leaderboard
         const rank = addScore({
@@ -285,6 +338,35 @@ const server = http.createServer((req, res) => {
         return json({ sessions: list, count: list.length });
       }
       
+      // ========== REPLAYS API ==========
+      
+      // List replays (metadata only)
+      if (url.pathname === '/api/replays' && req.method === 'GET') {
+        const replayList = replays.map(r => ({
+          id: r.id,
+          playerId: r.playerId,
+          playerType: r.playerType,
+          score: r.score,
+          wave: r.wave,
+          duration: r.duration,
+          endTime: r.endTime,
+          frameCount: r.frames.length
+        }));
+        return json({ replays: replayList, count: replayList.length });
+      }
+      
+      // Get replay data (full frames)
+      if (url.pathname.match(/^\/api\/replays\/([^\/]+)$/) && req.method === 'GET') {
+        const replayId = url.pathname.split('/')[3];
+        const replay = replays.find(r => r.id === replayId);
+        
+        if (!replay) {
+          return json({ error: 'Replay not found' }, 404);
+        }
+        
+        return json(replay);
+      }
+      
       // ========== API DOCS ==========
       
       if (url.pathname === '/api' && req.method === 'GET') {
@@ -299,7 +381,9 @@ const server = http.createServer((req, res) => {
             'GET /api/games/void-rush/:sessionId/state': 'Get current game state',
             'POST /api/games/void-rush/:sessionId/action': 'Send action, run tick, get new state',
             'POST /api/games/void-rush/:sessionId/end': 'End game and submit score',
-            'GET /api/sessions': 'List active game sessions'
+            'GET /api/sessions': 'List active game sessions',
+            'GET /api/replays': 'List recent game replays (last 20)',
+            'GET /api/replays/:replayId': 'Get full replay data with frames'
           },
           actions: {
             movement: ['left', 'right', 'up', 'down'],
