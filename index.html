@@ -259,9 +259,27 @@ fetch('/api/scores')
   .then(r => r.json())
   .then(scores => {
     if (scores.length > 0) {
+      const humans = scores.filter(s => s.playerType !== 'AGENT');
+      const agents = scores.filter(s => s.playerType === 'AGENT');
       document.getElementById('totalPlayers').textContent = new Set(scores.map(s => s.name)).size;
       document.getElementById('highestWave').textContent = Math.max(...scores.map(s => s.wave));
       document.getElementById('topScore').textContent = Math.max(...scores.map(s => s.score)).toLocaleString();
+    }
+  })
+  .catch(() => {});
+
+// Show active sessions
+fetch('/api/sessions')
+  .then(r => r.json())
+  .then(data => {
+    if (data.count > 0) {
+      const agentsPlaying = data.sessions.filter(s => s.playerType === 'AGENT').length;
+      if (agentsPlaying > 0) {
+        const badge = document.createElement('div');
+        badge.style.cssText = 'margin-top:20px;padding:8px 16px;background:rgba(0,255,170,0.1);border:1px solid #00ffaa;border-radius:4px;font-size:0.8rem;color:#00ffaa;';
+        badge.innerHTML = `🤖 ${agentsPlaying} agent${agentsPlaying > 1 ? 's' : ''} currently playing`;
+        document.querySelector('.stats').appendChild(badge);
+      }
     }
   })
   .catch(() => {});

@@ -1,32 +1,64 @@
 /**
- * VOID RUSH Game Server
- * Serves static files + public leaderboard API
+ * VOID RUSH / JAY GENT ARCADE - Game Server
+ * REST API + WebSocket for AI agents
+ * Static files for human players
  */
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { VoidRushGame } = require('./engine/void-rush');
 
-const PORT = process.env.PORT || 8787;
+const PORT = process.env.PORT || 8080;
 const SCORES_FILE = path.join(__dirname, 'scores.json');
-const MAX_SCORES = 100;
 
-// Initialize scores file
-if (!fs.existsSync(SCORES_FILE)) {
-  fs.writeFileSync(SCORES_FILE, '[]');
-}
+// ============================================
+// Game Session Management
+// ============================================
+
+const sessions = new Map(); // sessionId -> game instance
+const apiKeys = new Map();  // apiKey -> agentInfo
+
+// Clean up old sessions every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, game] of sessions) {
+    // Remove sessions inactive for 10 minutes
+    if (now - game.lastUpdate > 10 * 60 * 1000) {
+      sessions.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
+
+// ============================================
+// Scores Persistence
+// ============================================
 
 function loadScores() {
   try {
-    return JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8'));
-  } catch (e) {
-    return [];
-  }
+    if (fs.existsSync(SCORES_FILE)) {
+      return JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8'));
+    }
+  } catch (e) {}
+  return [];
 }
 
 function saveScores(scores) {
   fs.writeFileSync(SCORES_FILE, JSON.stringify(scores, null, 2));
 }
+
+function addScore(entry) {
+  const scores = loadScores();
+  scores.push(entry);
+  scores.sort((a, b) => b.score - a.score);
+  const trimmed = scores.slice(0, 100);
+  saveScores(trimmed);
+  return trimmed.findIndex(s => s.score === entry.score && s.name === entry.name) + 1;
+}
+
+// ============================================
+// MIME Types
+// ============================================
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -37,13 +69,17 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
+// ============================================
+// HTTP Server
+// ============================================
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   
-  // CORS headers
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
   
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -51,100 +87,336 @@ const server = http.createServer((req, res) => {
     return;
   }
   
-  // API endpoints
-  if (url.pathname === '/api/scores') {
-    if (req.method === 'GET') {
-      // Get leaderboard
-      const scores = loadScores();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(scores));
-      return;
-    }
-    
-    if (req.method === 'POST') {
-      // Submit score
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
-        try {
-          const data = JSON.parse(body);
-          const { name, score, wave } = data;
+  // Parse JSON body helper
+  const parseBody = () => new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (e) {
+        reject(new Error('Invalid JSON'));
+      }
+    });
+  });
+  
+  // JSON response helper
+  const json = (data, status = 200) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(data));
+  };
+  
+  // Route handling
+  (async () => {
+    try {
+      // ========== LEADERBOARD API ==========
+      
+      if (url.pathname === '/api/scores') {
+        if (req.method === 'GET') {
+          const scores = loadScores();
+          return json(scores);
+        }
+        
+        if (req.method === 'POST') {
+          const data = await parseBody();
+          const { name, score, wave, playerType } = data;
           
-          // Validate
           if (!name || typeof score !== 'number' || typeof wave !== 'number') {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Invalid data' }));
-            return;
+            return json({ error: 'Invalid data' }, 400);
           }
           
-          // Sanitize name
           const cleanName = String(name).slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
-          
-          // Load, add, sort, trim, save
-          const scores = loadScores();
-          scores.push({
+          const rank = addScore({
             name: cleanName,
             score: Math.floor(score),
             wave: Math.floor(wave),
+            playerType: playerType || 'HUMAN',
             date: Date.now()
           });
-          scores.sort((a, b) => b.score - a.score);
-          const trimmed = scores.slice(0, MAX_SCORES);
-          saveScores(trimmed);
           
-          // Find rank
-          const rank = trimmed.findIndex(s => s.date === scores[scores.length - 1]?.date) + 1;
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, rank }));
-        } catch (e) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+          return json({ success: true, rank });
         }
-      });
-      return;
+      }
+      
+      // ========== GAMES API ==========
+      
+      // List available games
+      if (url.pathname === '/api/games' && req.method === 'GET') {
+        return json({
+          games: [
+            {
+              id: 'void-rush',
+              name: 'VOID RUSH',
+              description: 'Space shooter with infinite waves',
+              dimensions: { width: 550, height: 650 },
+              actions: ['left', 'right', 'up', 'down', 'shoot', 'bomb']
+            }
+          ]
+        });
+      }
+      
+      // ========== VOID RUSH GAME API ==========
+      
+      // Start new game session
+      if (url.pathname === '/api/games/void-rush/start' && req.method === 'POST') {
+        const data = await parseBody();
+        const playerId = data.playerId || `anon_${Math.random().toString(36).substr(2, 6)}`;
+        const playerType = data.playerType || 'AGENT';
+        
+        const game = new VoidRushGame(playerId, playerType);
+        sessions.set(game.id, game);
+        
+        // Run initial tick to set up
+        game.tick();
+        
+        return json({
+          sessionId: game.id,
+          playerId: game.playerId,
+          playerType: game.playerType,
+          state: game.getState()
+        });
+      }
+      
+      // Get game state
+      if (url.pathname.match(/^\/api\/games\/void-rush\/([^\/]+)\/state$/) && req.method === 'GET') {
+        const sessionId = url.pathname.split('/')[4];
+        const game = sessions.get(sessionId);
+        
+        if (!game) {
+          return json({ error: 'Session not found' }, 404);
+        }
+        
+        return json(game.getState());
+      }
+      
+      // Send action and get new state (tick)
+      if (url.pathname.match(/^\/api\/games\/void-rush\/([^\/]+)\/action$/) && req.method === 'POST') {
+        const sessionId = url.pathname.split('/')[4];
+        const game = sessions.get(sessionId);
+        
+        if (!game) {
+          return json({ error: 'Session not found' }, 404);
+        }
+        
+        if (game.state === 'game_over') {
+          return json({
+            state: game.getState(),
+            results: game.getResults(),
+            gameOver: true
+          });
+        }
+        
+        const data = await parseBody();
+        
+        // Set input
+        game.setInput({
+          left: data.left || data.action === 'left',
+          right: data.right || data.action === 'right',
+          up: data.up || data.action === 'up',
+          down: data.down || data.action === 'down',
+          shoot: data.shoot || data.action === 'shoot',
+          bomb: data.bomb || data.action === 'bomb'
+        });
+        
+        // Run game tick(s)
+        const ticks = Math.min(data.ticks || 1, 10); // Max 10 ticks per request
+        for (let i = 0; i < ticks; i++) {
+          game.tick();
+          if (game.state === 'game_over') break;
+        }
+        
+        const response = { state: game.getState() };
+        
+        if (game.state === 'game_over') {
+          response.gameOver = true;
+          response.results = game.getResults();
+        }
+        
+        return json(response);
+      }
+      
+      // End game and submit score
+      if (url.pathname.match(/^\/api\/games\/void-rush\/([^\/]+)\/end$/) && req.method === 'POST') {
+        const sessionId = url.pathname.split('/')[4];
+        const game = sessions.get(sessionId);
+        
+        if (!game) {
+          return json({ error: 'Session not found' }, 404);
+        }
+        
+        const data = await parseBody();
+        const name = data.name || game.playerId.slice(0, 3).toUpperCase();
+        
+        const results = game.getResults();
+        
+        // Submit to leaderboard
+        const rank = addScore({
+          name: String(name).slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' '),
+          score: results.score,
+          wave: results.wave,
+          playerType: results.playerType,
+          date: Date.now()
+        });
+        
+        // Clean up session
+        sessions.delete(sessionId);
+        
+        return json({
+          results,
+          rank,
+          leaderboard: loadScores().slice(0, 10)
+        });
+      }
+      
+      // List active sessions (for debugging/monitoring)
+      if (url.pathname === '/api/sessions' && req.method === 'GET') {
+        const list = [];
+        for (const [id, game] of sessions) {
+          list.push({
+            id,
+            playerId: game.playerId,
+            playerType: game.playerType,
+            wave: game.wave,
+            score: game.score,
+            state: game.state,
+            age: Date.now() - game.createdAt
+          });
+        }
+        return json({ sessions: list, count: list.length });
+      }
+      
+      // ========== API DOCS ==========
+      
+      if (url.pathname === '/api' && req.method === 'GET') {
+        return json({
+          name: 'Jay Gent Arcade API',
+          version: '1.0.0',
+          endpoints: {
+            'GET /api/games': 'List available games',
+            'GET /api/scores': 'Get leaderboard',
+            'POST /api/scores': 'Submit score (name, score, wave, playerType)',
+            'POST /api/games/void-rush/start': 'Start new game session',
+            'GET /api/games/void-rush/:sessionId/state': 'Get current game state',
+            'POST /api/games/void-rush/:sessionId/action': 'Send action, run tick, get new state',
+            'POST /api/games/void-rush/:sessionId/end': 'End game and submit score',
+            'GET /api/sessions': 'List active game sessions'
+          },
+          actions: {
+            movement: ['left', 'right', 'up', 'down'],
+            combat: ['shoot', 'bomb'],
+            note: 'Send as {left: true, shoot: true} or {action: "shoot"}'
+          }
+        });
+      }
+      
+      // ========== STATIC FILES ==========
+      
+      let filePath = url.pathname;
+      if (filePath === '/') filePath = '/index.html';
+      
+      const fullPath = path.join(__dirname, filePath);
+      const ext = path.extname(fullPath);
+      
+      // Security check
+      if (!fullPath.startsWith(__dirname)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+      
+      // Serve static file
+      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+        const data = fs.readFileSync(fullPath);
+        res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'text/plain' });
+        res.end(data);
+        return;
+      }
+      
+      // 404
+      res.writeHead(404);
+      res.end('Not Found');
+      
+    } catch (err) {
+      console.error('Error:', err);
+      json({ error: err.message }, 500);
     }
-  }
+  })();
+});
+
+// ============================================
+// WebSocket Support (for real-time streaming)
+// ============================================
+
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const sessionId = url.searchParams.get('session');
   
-  // Static file serving
-  let filePath = url.pathname;
-  if (filePath === '/') filePath = '/void-rush.html';
-  
-  const fullPath = path.join(__dirname, filePath);
-  const ext = path.extname(fullPath);
-  
-  // Security: prevent directory traversal
-  if (!fullPath.startsWith(__dirname)) {
-    res.writeHead(403);
-    res.end('Forbidden');
+  if (!sessionId) {
+    ws.close(4000, 'Session ID required');
     return;
   }
   
-  fs.readFile(fullPath, (err, data) => {
-    if (err) {
-      if (err.code === 'ENOENT') {
-        res.writeHead(404);
-        res.end('Not Found');
-      } else {
-        res.writeHead(500);
-        res.end('Server Error');
-      }
+  const game = sessions.get(sessionId);
+  if (!game) {
+    ws.close(4001, 'Session not found');
+    return;
+  }
+  
+  console.log(`WebSocket connected: ${sessionId}`);
+  
+  // Game loop for this connection
+  let running = true;
+  const loop = setInterval(() => {
+    if (!running || game.state === 'game_over') {
+      clearInterval(loop);
+      ws.send(JSON.stringify({
+        type: 'game_over',
+        state: game.getState(),
+        results: game.getResults()
+      }));
       return;
     }
     
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'text/plain' });
-    res.end(data);
+    game.tick();
+    ws.send(JSON.stringify({
+      type: 'state',
+      state: game.getState()
+    }));
+  }, game.msPerTick);
+  
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      
+      if (msg.type === 'input') {
+        game.setInput(msg.input || msg);
+      }
+    } catch (e) {}
+  });
+  
+  ws.on('close', () => {
+    running = false;
+    clearInterval(loop);
+    console.log(`WebSocket disconnected: ${sessionId}`);
   });
 });
 
+// ============================================
+// Start Server
+// ============================================
+
 server.listen(PORT, () => {
   console.log(`
-╔══════════════════════════════════════════════════════╗
-║                    VOID RUSH                         ║
-║           Game Server Running 🚀                     ║
-╠══════════════════════════════════════════════════════╣
-║  Play:        http://localhost:${PORT}                  ║
-║  Leaderboard: http://localhost:${PORT}/api/scores       ║
-╚══════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════╗
+║              JAY GENT ARCADE - AGENT EDITION             ║
+╠══════════════════════════════════════════════════════════╣
+║  🎮  Play:        http://localhost:${PORT}                   ║
+║  📡  API Docs:    http://localhost:${PORT}/api               ║
+║  🏆  Leaderboard: http://localhost:${PORT}/api/scores        ║
+║  🤖  WebSocket:   ws://localhost:${PORT}?session=ID          ║
+╚══════════════════════════════════════════════════════════╝
   `);
 });
