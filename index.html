@@ -773,6 +773,25 @@
         </div>
       </a>
       
+      <a href="/snake.html" class="game-card">
+        <div class="game-preview">
+          <canvas id="snakePreview"></canvas>
+          <div class="game-preview-overlay">
+            <button class="preview-play-btn">▶ PLAY NOW</button>
+          </div>
+        </div>
+        <div class="game-content">
+          <div class="game-header">
+            <span class="game-title">NEON SNAKE</span>
+            <span class="game-badge" style="background: rgba(0,255,255,0.2); border-color: #00ffff; color: #00ffff;">NEW</span>
+          </div>
+          <p class="game-desc">Classic snake with a neon twist. Power-ups, ghost mode, increasing speed.</p>
+          <div class="game-actions">
+            <span class="game-action primary" style="width: 100%; text-align: center;">▶ PLAY</span>
+          </div>
+        </div>
+      </a>
+      
       <div class="game-card" style="opacity: 0.4; pointer-events: none;">
         <div class="game-preview" style="background: linear-gradient(135deg, #1a1a2e 0%, #0a0a15 100%); display: flex; align-items: center; justify-content: center;">
           <span style="font-size: 3rem;">🎮</span>
@@ -1403,6 +1422,161 @@ setInterval(loadData, 15000); // Refresh every 15s
       ctx.fill();
     });
     ctx.globalAlpha = 1;
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  
+  loop();
+})();
+
+// Snake Preview
+(function() {
+  const canvas = document.getElementById('snakePreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  
+  const W = canvas.width, H = canvas.height;
+  const GRID = 15;
+  const COLS = Math.floor(W / GRID);
+  const ROWS = Math.floor(H / GRID);
+  
+  // Snake
+  let snake = [
+    { x: 10, y: 7 },
+    { x: 9, y: 7 },
+    { x: 8, y: 7 },
+    { x: 7, y: 7 },
+    { x: 6, y: 7 }
+  ];
+  let dir = { x: 1, y: 0 };
+  
+  // Food
+  let food = { x: 15, y: 7 };
+  
+  // AI target
+  let targetDir = { x: 1, y: 0 };
+  let moveCounter = 0;
+  
+  function spawnFood() {
+    food.x = 2 + Math.floor(Math.random() * (COLS - 4));
+    food.y = 2 + Math.floor(Math.random() * (ROWS - 4));
+  }
+  
+  function update() {
+    moveCounter++;
+    if (moveCounter < 8) return;
+    moveCounter = 0;
+    
+    // Simple AI: move toward food with some randomness
+    const head = snake[0];
+    const dx = food.x - head.x;
+    const dy = food.y - head.y;
+    
+    // Change direction occasionally
+    if (Math.random() < 0.3) {
+      if (Math.abs(dx) > Math.abs(dy)) {
+        targetDir = { x: dx > 0 ? 1 : -1, y: 0 };
+      } else {
+        targetDir = { x: 0, y: dy > 0 ? 1 : -1 };
+      }
+    }
+    
+    // Avoid 180° turn
+    if (targetDir.x !== -dir.x || targetDir.y !== -dir.y) {
+      dir = { ...targetDir };
+    }
+    
+    // Move
+    const newHead = {
+      x: (head.x + dir.x + COLS) % COLS,
+      y: (head.y + dir.y + ROWS) % ROWS
+    };
+    
+    // Self collision - reset
+    if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
+      snake = [
+        { x: 10, y: 7 },
+        { x: 9, y: 7 },
+        { x: 8, y: 7 }
+      ];
+      dir = { x: 1, y: 0 };
+      return;
+    }
+    
+    snake.unshift(newHead);
+    
+    // Eat food
+    if (newHead.x === food.x && newHead.y === food.y) {
+      spawnFood();
+      // Keep tail (grow)
+      if (snake.length > 20) snake.pop(); // Limit length for preview
+    } else {
+      snake.pop();
+    }
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+    for (let x = 0; x <= W; x += GRID) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= H; y += GRID) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+    
+    // Food
+    const pulse = Math.sin(Date.now() / 150) * 2;
+    ctx.fillStyle = '#ff6b6b';
+    ctx.shadowColor = '#ff6b6b';
+    ctx.shadowBlur = 10 + pulse;
+    ctx.beginPath();
+    ctx.arc(food.x * GRID + GRID / 2, food.y * GRID + GRID / 2, GRID / 2 - 2 + pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Snake
+    snake.forEach((s, i) => {
+      const hue = 160 - (i / snake.length) * 40;
+      ctx.fillStyle = `hsl(${hue}, 100%, ${i === 0 ? 60 : 50}%)`;
+      
+      if (i === 0) {
+        ctx.shadowColor = '#00ffaa';
+        ctx.shadowBlur = 10;
+      }
+      
+      ctx.beginPath();
+      ctx.roundRect(s.x * GRID + 2, s.y * GRID + 2, GRID - 4, GRID - 4, i === 0 ? 4 : 3);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      
+      // Eyes on head
+      if (i === 0) {
+        ctx.fillStyle = '#fff';
+        const cx = s.x * GRID + GRID / 2;
+        const cy = s.y * GRID + GRID / 2;
+        ctx.beginPath();
+        ctx.arc(cx - 3 + dir.x * 2, cy - 1 + dir.y * 2, 2, 0, Math.PI * 2);
+        ctx.arc(cx + 3 + dir.x * 2, cy - 1 + dir.y * 2, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
   }
   
   function loop() {
