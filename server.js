@@ -2,12 +2,25 @@
  * VOID RUSH / JAY GENT ARCADE - Game Server
  * REST API + WebSocket for AI agents
  * Static files for human players
+ * 
+ * v3.0 - Added Supabase auth + social features
  */
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { VoidRushGame } = require('./engine/void-rush');
+
+// Supabase integration (optional - gracefully degrades if not configured)
+let db = null;
+try {
+  db = require('./lib/supabase');
+  if (db.isConfigured) {
+    console.log('✅ Supabase connected');
+  }
+} catch (e) {
+  console.log('ℹ️  Supabase not configured - running in guest-only mode');
+}
 
 const PORT = process.env.PORT || 8080;
 const SCORES_FILE = path.join(__dirname, 'scores.json');
@@ -145,16 +158,52 @@ const server = http.createServer((req, res) => {
       
       if (url.pathname === '/api/scores') {
         if (req.method === 'GET') {
+          // If Supabase configured, fetch from there
+          if (db?.isConfigured) {
+            const game = url.searchParams.get('game') || 'void-rush';
+            const limit = Math.min(parseInt(url.searchParams.get('limit')) || 100, 500);
+            const scores = await db.getLeaderboard(game, limit);
+            return json(scores);
+          }
+          // Fallback to local file
           const scores = loadScores();
           return json(scores);
         }
         
         if (req.method === 'POST') {
           const data = await parseBody();
-          const { name, score, wave, playerType } = data;
+          const { name, score, wave, playerType, game } = data;
           
-          if (!name || typeof score !== 'number' || typeof wave !== 'number') {
+          if (typeof score !== 'number' || typeof wave !== 'number') {
             return json({ error: 'Invalid data' }, 400);
+          }
+          
+          // Check for authenticated user
+          const user = db?.isConfigured ? await db.authMiddleware(req) : null;
+          
+          if (db?.isConfigured) {
+            // Submit to Supabase
+            const scoreData = {
+              score: Math.floor(score),
+              wave: Math.floor(wave),
+              game: game || 'void-rush',
+              player_type: playerType || 'HUMAN',
+              user_id: user?.id || null,
+              guest_name: user ? null : String(name || 'AAA').slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+            };
+            
+            const { data: result, error } = await db.submitScore(scoreData);
+            if (error) {
+              console.error('Score submit error:', error);
+              return json({ error: 'Failed to submit score' }, 500);
+            }
+            
+            return json({ success: true, id: result?.id });
+          }
+          
+          // Fallback to local file
+          if (!name) {
+            return json({ error: 'Name required in guest mode' }, 400);
           }
           
           const cleanName = String(name).slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
@@ -393,6 +442,135 @@ const server = http.createServer((req, res) => {
         });
       }
       
+      // ========== AUTH CONFIG (for frontend) ==========
+      
+      if (url.pathname === '/api/auth/config' && req.method === 'GET') {
+        return json({
+          configured: !!db?.isConfigured,
+          supabaseUrl: db?.config?.url || null,
+          supabaseAnonKey: db?.config?.anonKey || null
+        });
+      }
+      
+      // ========== USER/PROFILE API ==========
+      
+      if (db?.isConfigured) {
+        // Get current user profile
+        if (url.pathname === '/api/me' && req.method === 'GET') {
+          const user = await db.authMiddleware(req);
+          if (!user) return json({ error: 'Unauthorized' }, 401);
+          
+          const profile = await db.getProfile(user.id);
+          const counts = await db.getFollowCounts(user.id);
+          
+          return json({ ...profile, ...counts });
+        }
+        
+        // Update current user profile
+        if (url.pathname === '/api/me' && req.method === 'PATCH') {
+          const user = await db.authMiddleware(req);
+          if (!user) return json({ error: 'Unauthorized' }, 401);
+          
+          const data = await parseBody();
+          const allowed = ['username', 'display_name', 'avatar_url', 'bio'];
+          const updates = {};
+          for (const key of allowed) {
+            if (data[key] !== undefined) updates[key] = data[key];
+          }
+          
+          const { data: result, error } = await db.updateProfile(user.id, updates);
+          if (error) return json({ error: error.message }, 400);
+          
+          return json(result);
+        }
+        
+        // Get user by username
+        if (url.pathname.match(/^\/api\/users\/([^\/]+)$/) && req.method === 'GET') {
+          const username = decodeURIComponent(url.pathname.split('/')[3]);
+          const profile = await db.getProfileByUsername(username);
+          
+          if (!profile) return json({ error: 'User not found' }, 404);
+          
+          const counts = await db.getFollowCounts(profile.id);
+          
+          // Check if current user follows this profile
+          const user = await db.authMiddleware(req);
+          const isFollowing = user ? await db.isFollowing(user.id, profile.id) : false;
+          
+          return json({ ...profile, ...counts, isFollowing });
+        }
+        
+        // Get user's followers
+        if (url.pathname.match(/^\/api\/users\/([^\/]+)\/followers$/) && req.method === 'GET') {
+          const username = decodeURIComponent(url.pathname.split('/')[3]);
+          const profile = await db.getProfileByUsername(username);
+          
+          if (!profile) return json({ error: 'User not found' }, 404);
+          
+          const limit = Math.min(parseInt(url.searchParams.get('limit')) || 50, 100);
+          const followers = await db.getFollowers(profile.id, limit);
+          
+          return json({ followers });
+        }
+        
+        // Get who user is following
+        if (url.pathname.match(/^\/api\/users\/([^\/]+)\/following$/) && req.method === 'GET') {
+          const username = decodeURIComponent(url.pathname.split('/')[3]);
+          const profile = await db.getProfileByUsername(username);
+          
+          if (!profile) return json({ error: 'User not found' }, 404);
+          
+          const limit = Math.min(parseInt(url.searchParams.get('limit')) || 50, 100);
+          const following = await db.getFollowing(profile.id, limit);
+          
+          return json({ following });
+        }
+        
+        // Follow a user
+        if (url.pathname.match(/^\/api\/users\/([^\/]+)\/follow$/) && req.method === 'POST') {
+          const user = await db.authMiddleware(req);
+          if (!user) return json({ error: 'Unauthorized' }, 401);
+          
+          const username = decodeURIComponent(url.pathname.split('/')[3]);
+          const target = await db.getProfileByUsername(username);
+          
+          if (!target) return json({ error: 'User not found' }, 404);
+          if (target.id === user.id) return json({ error: 'Cannot follow yourself' }, 400);
+          
+          const { error } = await db.followUser(user.id, target.id);
+          if (error) return json({ error: error.message }, 400);
+          
+          return json({ success: true, following: true });
+        }
+        
+        // Unfollow a user
+        if (url.pathname.match(/^\/api\/users\/([^\/]+)\/follow$/) && req.method === 'DELETE') {
+          const user = await db.authMiddleware(req);
+          if (!user) return json({ error: 'Unauthorized' }, 401);
+          
+          const username = decodeURIComponent(url.pathname.split('/')[3]);
+          const target = await db.getProfileByUsername(username);
+          
+          if (!target) return json({ error: 'User not found' }, 404);
+          
+          const { error } = await db.unfollowUser(user.id, target.id);
+          if (error) return json({ error: error.message }, 400);
+          
+          return json({ success: true, following: false });
+        }
+        
+        // Get feed (scores from followed users)
+        if (url.pathname === '/api/feed' && req.method === 'GET') {
+          const user = await db.authMiddleware(req);
+          if (!user) return json({ error: 'Unauthorized' }, 401);
+          
+          const limit = Math.min(parseInt(url.searchParams.get('limit')) || 50, 100);
+          const feed = await db.getFollowingFeed(user.id, limit);
+          
+          return json({ feed });
+        }
+      }
+      
       // ========== STATIC FILES ==========
       
       let filePath = url.pathname;
@@ -410,7 +588,18 @@ const server = http.createServer((req, res) => {
       
       // Serve static file
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-        const data = fs.readFileSync(fullPath);
+        let data = fs.readFileSync(fullPath);
+        
+        // Inject Supabase config into HTML pages
+        if (ext === '.html' && db?.isConfigured) {
+          const configScript = `<script>
+  window.SUPABASE_URL = "${db.config.url}";
+  window.SUPABASE_ANON_KEY = "${db.config.anonKey}";
+</script>
+<script src="/js/auth.js"></script>`;
+          data = data.toString().replace('</head>', configScript + '\n</head>');
+        }
+        
         res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'text/plain' });
         res.end(data);
         return;

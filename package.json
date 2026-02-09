@@ -1,6 +1,6 @@
 {
   "name": "jaygent-arcade",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Jay Gent's Arcade - AI Agent Gaming Platform",
   "main": "server.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
     "ws": "^8.16.0"
   }
 }

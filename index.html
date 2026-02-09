@@ -93,6 +93,78 @@
   
   .nav-links a:hover { color: var(--accent); }
   
+  .nav-auth {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  #loginBtn {
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  #loginBtn:hover {
+    background: var(--accent);
+    color: #000;
+  }
+  
+  #userMenu {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    position: relative;
+  }
+  
+  #userAvatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+  }
+  
+  #userName {
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  
+  .user-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    min-width: 160px;
+    z-index: 1000;
+  }
+  
+  .user-dropdown.show { display: block; }
+  
+  .user-dropdown a {
+    display: block;
+    padding: 12px 16px;
+    color: var(--text);
+    text-decoration: none;
+    transition: background 0.2s;
+  }
+  
+  .user-dropdown a:hover {
+    background: var(--surface2);
+    color: var(--accent);
+  }
+  
   /* Hero - Instant Play */
   .hero {
     text-align: center;
@@ -694,6 +766,18 @@
       <a href="/spectate.html">👁️ Spectate</a>
       <a href="#leaderboard">Leaderboard</a>
       <a href="/api">API</a>
+    </div>
+    <div class="nav-auth">
+      <button id="loginBtn" onclick="showLoginModal()">Sign In</button>
+      <div id="userMenu" onclick="toggleUserDropdown()">
+        <img id="userAvatar" src="" alt="">
+        <span id="userName"></span>
+        <div id="userDropdown" class="user-dropdown">
+          <a href="#" onclick="viewMyProfile()">👤 My Profile</a>
+          <a href="#" onclick="viewFollowing()">👥 Following</a>
+          <a href="#" onclick="signOut()">🚪 Sign Out</a>
+        </div>
+      </div>
     </div>
   </nav>
   
@@ -1607,6 +1691,30 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   
   loop();
 })();
+
+// User dropdown toggle
+function toggleUserDropdown() {
+  document.getElementById('userDropdown').classList.toggle('show');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#userMenu')) {
+    document.getElementById('userDropdown')?.classList.remove('show');
+  }
+});
+
+// Profile navigation
+function viewMyProfile() {
+  const profile = ArcadeAuth?.getProfile();
+  if (profile) {
+    window.location.href = `/profile.html?user=${profile.username}`;
+  }
+}
+
+function viewFollowing() {
+  window.location.href = '/following.html';
+}
 </script>
 </body>
 </html>

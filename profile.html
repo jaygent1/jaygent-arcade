@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Player Profile — JAY GENT</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎩</text></svg>">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  :root {
+    --bg: #03030a;
+    --surface: #0a0a15;
+    --surface2: #0f0f1a;
+    --border: #1a1a2e;
+    --text: #e0e0e0;
+    --muted: #666;
+    --accent: #00ffaa;
+    --accent2: #ff6b6b;
+    --accent3: #a855f7;
+    --gold: #ffd700;
+  }
+  
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+  }
+  
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 0;
+    margin-bottom: 40px;
+  }
+  
+  .logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  
+  .back-link {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  
+  .back-link:hover { color: var(--accent); }
+  
+  /* Profile Header */
+  .profile-header {
+    display: flex;
+    gap: 30px;
+    align-items: flex-start;
+    margin-bottom: 40px;
+  }
+  
+  .profile-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 3px solid var(--accent);
+    background: var(--surface);
+  }
+  
+  .profile-info {
+    flex: 1;
+  }
+  
+  .profile-name {
+    font-size: 2rem;
+    color: var(--accent);
+    margin-bottom: 5px;
+  }
+  
+  .profile-username {
+    color: var(--muted);
+    margin-bottom: 15px;
+  }
+  
+  .profile-bio {
+    color: var(--text);
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  
+  .profile-stats {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 20px;
+  }
+  
+  .stat {
+    text-align: center;
+  }
+  
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--text);
+  }
+  
+  .stat-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  
+  .follow-btn {
+    padding: 12px 30px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .follow-btn.follow {
+    background: var(--accent);
+    border: none;
+    color: #000;
+  }
+  
+  .follow-btn.following {
+    background: transparent;
+    border: 2px solid var(--accent);
+    color: var(--accent);
+  }
+  
+  .follow-btn:hover {
+    transform: scale(1.05);
+  }
+  
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  
+  .tab {
+    padding: 15px 0;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+  }
+  
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  
+  .tab:hover { color: var(--accent); }
+  
+  /* Scores List */
+  .scores-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .score-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  
+  .score-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+  }
+  
+  .score-game {
+    color: var(--accent);
+    font-weight: bold;
+  }
+  
+  .score-wave {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  
+  .score-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--gold);
+  }
+  
+  .score-date {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  
+  /* Followers/Following List */
+  .user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .user-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  
+  .user-item:hover {
+    border-color: var(--accent);
+  }
+  
+  .user-item img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+  }
+  
+  .user-item-info {
+    flex: 1;
+  }
+  
+  .user-item-name {
+    font-weight: bold;
+    color: var(--text);
+  }
+  
+  .user-item-username {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav>
+    <a href="/" class="logo">🎩 JAY GENT</a>
+    <a href="/" class="back-link">← Back to Arena</a>
+  </nav>
+  
+  <div id="profileContent">
+    <div class="loading">Loading profile...</div>
+  </div>
+</div>
+
+<script>
+// Get username from URL
+const params = new URLSearchParams(window.location.search);
+const username = params.get('user');
+
+if (!username) {
+  window.location.href = '/';
+}
+
+let profile = null;
+let currentTab = 'scores';
+
+async function loadProfile() {
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}`);
+    if (!res.ok) throw new Error('User not found');
+    
+    profile = await res.json();
+    renderProfile();
+  } catch (e) {
+    document.getElementById('profileContent').innerHTML = `
+      <div class="empty-state">
+        <h2>User not found</h2>
+        <p>The player "${username}" doesn't exist.</p>
+        <a href="/" style="color: var(--accent)">← Back to Arena</a>
+      </div>
+    `;
+  }
+}
+
+function renderProfile() {
+  const isOwnProfile = window.ArcadeAuth?.getProfile()?.id === profile.id;
+  
+  document.getElementById('profileContent').innerHTML = `
+    <div class="profile-header">
+      <img class="profile-avatar" src="${profile.avatar_url || defaultAvatar(profile.username)}" alt="${profile.username}">
+      <div class="profile-info">
+        <h1 class="profile-name">${escapeHtml(profile.display_name || profile.username)}</h1>
+        <p class="profile-username">@${escapeHtml(profile.username)}</p>
+        ${profile.bio ? `<p class="profile-bio">${escapeHtml(profile.bio)}</p>` : ''}
+        <div class="profile-stats">
+          <div class="stat" onclick="showTab('followers')" style="cursor:pointer">
+            <div class="stat-value">${profile.followerCount || 0}</div>
+            <div class="stat-label">Followers</div>
+          </div>
+          <div class="stat" onclick="showTab('following')" style="cursor:pointer">
+            <div class="stat-value">${profile.followingCount || 0}</div>
+            <div class="stat-label">Following</div>
+          </div>
+        </div>
+        ${!isOwnProfile ? `
+          <button class="follow-btn ${profile.isFollowing ? 'following' : 'follow'}" onclick="toggleFollow()">
+            ${profile.isFollowing ? '✓ Following' : 'Follow'}
+          </button>
+        ` : ''}
+      </div>
+    </div>
+    
+    <div class="tabs">
+      <div class="tab ${currentTab === 'scores' ? 'active' : ''}" onclick="showTab('scores')">🎮 Scores</div>
+      <div class="tab ${currentTab === 'followers' ? 'active' : ''}" onclick="showTab('followers')">👥 Followers</div>
+      <div class="tab ${currentTab === 'following' ? 'active' : ''}" onclick="showTab('following')">📡 Following</div>
+    </div>
+    
+    <div id="tabContent">
+      <div class="loading">Loading...</div>
+    </div>
+  `;
+  
+  loadTabContent();
+}
+
+async function showTab(tab) {
+  currentTab = tab;
+  renderProfile();
+}
+
+async function loadTabContent() {
+  const container = document.getElementById('tabContent');
+  
+  if (currentTab === 'scores') {
+    // TODO: Load user's scores from API
+    container.innerHTML = `
+      <div class="empty-state">
+        <p>No scores yet. Time to play!</p>
+      </div>
+    `;
+  } else if (currentTab === 'followers') {
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(username)}/followers`);
+      const data = await res.json();
+      
+      if (!data.followers?.length) {
+        container.innerHTML = '<div class="empty-state">No followers yet</div>';
+        return;
+      }
+      
+      container.innerHTML = `
+        <div class="user-list">
+          ${data.followers.map(u => `
+            <div class="user-item" onclick="window.location.href='/profile.html?user=${encodeURIComponent(u.username)}'">
+              <img src="${u.avatar_url || defaultAvatar(u.username)}" alt="${u.username}">
+              <div class="user-item-info">
+                <div class="user-item-name">${escapeHtml(u.display_name || u.username)}</div>
+                <div class="user-item-username">@${escapeHtml(u.username)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state">Failed to load followers</div>';
+    }
+  } else if (currentTab === 'following') {
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(username)}/following`);
+      const data = await res.json();
+      
+      if (!data.following?.length) {
+        container.innerHTML = '<div class="empty-state">Not following anyone yet</div>';
+        return;
+      }
+      
+      container.innerHTML = `
+        <div class="user-list">
+          ${data.following.map(u => `
+            <div class="user-item" onclick="window.location.href='/profile.html?user=${encodeURIComponent(u.username)}'">
+              <img src="${u.avatar_url || defaultAvatar(u.username)}" alt="${u.username}">
+              <div class="user-item-info">
+                <div class="user-item-name">${escapeHtml(u.display_name || u.username)}</div>
+                <div class="user-item-username">@${escapeHtml(u.username)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state">Failed to load following</div>';
+    }
+  }
+}
+
+async function toggleFollow() {
+  if (!window.ArcadeAuth?.getUser()) {
+    showLoginModal();
+    return;
+  }
+  
+  const method = profile.isFollowing ? 'DELETE' : 'POST';
+  const session = await supabase.auth.getSession();
+  
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}/follow`, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${session.data.session?.access_token}`
+      }
+    });
+    
+    const data = await res.json();
+    profile.isFollowing = data.following;
+    profile.followerCount += data.following ? 1 : -1;
+    renderProfile();
+  } catch (e) {
+    console.error('Follow error:', e);
+  }
+}
+
+function defaultAvatar(username) {
+  return `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}`;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// Load profile on page load
+loadProfile();
+</script>
+</body>
+</html>
