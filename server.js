@@ -590,14 +590,19 @@ const server = http.createServer((req, res) => {
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
         let data = fs.readFileSync(fullPath);
         
-        // Inject Supabase config into HTML pages
-        if (ext === '.html' && db?.isConfigured) {
-          const configScript = `<script>
+        // Inject scripts into HTML pages
+        if (ext === '.html') {
+          let scripts = '<script src="/js/onboarding.js"></script>\n';
+          
+          if (db?.isConfigured) {
+            scripts = `<script>
   window.SUPABASE_URL = "${db.config.url}";
   window.SUPABASE_ANON_KEY = "${db.config.anonKey}";
 </script>
-<script src="/js/auth.js"></script>`;
-          data = data.toString().replace('</head>', configScript + '\n</head>');
+<script src="/js/auth.js"></script>\n` + scripts;
+          }
+          
+          data = data.toString().replace('</head>', scripts + '</head>');
         }
         
         res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'text/plain' });

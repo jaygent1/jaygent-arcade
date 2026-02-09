@@ -302,6 +302,12 @@ document.getElementById('playerName').addEventListener('keydown', e => {
 document.getElementById('closeBoard').addEventListener('click', closeScoreboard);
 
 function startGame() {
+  // Track game start for onboarding
+  window.Onboarding?.trackGameStart('void-rush');
+  
+  // Show tutorial for first-time players
+  window.Onboarding?.showTutorial('void-rush');
+  
   score = 0; lives = 3; wave = 0; bombs = 2;
   gameOver = false; gameRunning = true; gamePaused = false;
   player.x = W / 2; player.y = H - 80;
@@ -664,20 +670,44 @@ function closeScoreboard() {
 function checkHighScore() {
   pendingScore = score;
   gamePaused = true;
-  document.getElementById('scoreboard').style.display = 'block';
-  document.getElementById('nameEntry').style.display = 'block';
-  document.getElementById('playerName').value = localStorage.getItem('voidrush_name') || '';
-  document.getElementById('playerName').focus();
   
+  // Track game end for onboarding
+  window.Onboarding?.trackGameEnd('void-rush', score, wave);
+  
+  // Show scoreboard
+  document.getElementById('scoreboard').style.display = 'block';
   fetchGlobalScores().then(renderScores);
   renderScores();
+  
+  // Check if user has a name set
+  const hasName = localStorage.getItem('voidrush_name') || localStorage.getItem('arcade_name') || window.ArcadeAuth?.getUser();
+  
+  if (hasName) {
+    // Show inline name entry with prefilled name
+    document.getElementById('nameEntry').style.display = 'block';
+    document.getElementById('playerName').value = localStorage.getItem('voidrush_name') || localStorage.getItem('arcade_name') || '';
+    document.getElementById('playerName').focus();
+  } else {
+    // Use onboarding's nicer name prompt for first-time users
+    window.Onboarding?.promptForName((name) => {
+      if (name) {
+        localStorage.setItem('voidrush_name', name);
+        doSubmitScore(name);
+      }
+    });
+  }
 }
 
 async function submitScore() {
   const name = document.getElementById('playerName').value.toUpperCase().trim() || 'AAA';
   const finalName = name.slice(0, 3).padEnd(3, ' ');
-  
   localStorage.setItem('voidrush_name', finalName);
+  document.getElementById('nameEntry').style.display = 'none';
+  await doSubmitScore(finalName);
+}
+
+async function doSubmitScore(playerName) {
+  const finalName = playerName.slice(0, 3).padEnd(3, ' ').toUpperCase();
   
   // Save locally
   localScores.push({ name: finalName, score: pendingScore, wave, date: Date.now() });
@@ -685,19 +715,22 @@ async function submitScore() {
   localScores = localScores.slice(0, 50);
   localStorage.setItem('voidrush_scores', JSON.stringify(localScores));
   
-  // Submit to server
+  // Submit to server (use ArcadeAuth if available for linked scores)
   try {
-    await fetch(`${API_BASE}/scores`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: finalName, score: pendingScore, wave })
-    });
+    if (window.ArcadeAuth?.submitScore) {
+      await window.ArcadeAuth.submitScore(pendingScore, wave, 'void-rush', 'HUMAN');
+    } else {
+      await fetch(`${API_BASE}/scores`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: finalName, score: pendingScore, wave })
+      });
+    }
     await fetchGlobalScores();
   } catch (e) {
     console.log('Could not submit to global leaderboard');
   }
   
-  document.getElementById('nameEntry').style.display = 'none';
   renderScores();
   pendingScore = null;
 }
