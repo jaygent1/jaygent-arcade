@@ -10,7 +10,7 @@
 const SUPABASE_URL = window.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 
-let supabase = null;
+let _supabaseClient = null;
 let currentUser = null;
 let currentProfile = null;
 let authListeners = [];
@@ -30,16 +30,16 @@ async function initAuth() {
     await loadSupabaseClient();
   }
 
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  _supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   // Check for existing session
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await _supabaseClient.auth.getSession();
   if (session) {
     await handleAuthChange('SIGNED_IN', session);
   }
 
   // Listen for auth changes
-  supabase.auth.onAuthStateChange(async (event, session) => {
+  _supabaseClient.auth.onAuthStateChange(async (event, session) => {
     await handleAuthChange(event, session);
   });
 
@@ -91,9 +91,9 @@ function notifyListeners(event, data) {
 // ============================================
 
 async function signInWithProvider(provider) {
-  if (!supabase) return { error: 'Auth not configured' };
+  if (!_supabaseClient) return { error: 'Auth not configured' };
 
-  const { data, error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await _supabaseClient.auth.signInWithOAuth({
     provider,
     options: {
       redirectTo: window.location.origin + window.location.pathname
@@ -120,9 +120,9 @@ async function signInWithTwitter() {
 }
 
 async function signInWithMagicLink(email) {
-  if (!supabase) return { error: 'Auth not configured' };
+  if (!_supabaseClient) return { error: 'Auth not configured' };
 
-  const { data, error } = await supabase.auth.signInWithOtp({
+  const { data, error } = await _supabaseClient.auth.signInWithOtp({
     email,
     options: {
       emailRedirectTo: window.location.origin + window.location.pathname
@@ -133,8 +133,8 @@ async function signInWithMagicLink(email) {
 }
 
 async function signOut() {
-  if (!supabase) return;
-  await supabase.auth.signOut();
+  if (!_supabaseClient) return;
+  await _supabaseClient.auth.signOut();
 }
 
 // ============================================
@@ -142,9 +142,9 @@ async function signOut() {
 // ============================================
 
 async function fetchProfile(userId) {
-  if (!supabase) return null;
+  if (!_supabaseClient) return null;
 
-  const { data, error } = await supabase
+  const { data, error } = await _supabaseClient
     .from('profiles')
     .select('*, followers:follows!follows_following_id_fkey(count), following:follows!follows_follower_id_fkey(count)')
     .eq('id', userId)
@@ -163,9 +163,9 @@ async function fetchProfile(userId) {
 }
 
 async function updateProfile(updates) {
-  if (!supabase || !currentUser) return { error: 'Not signed in' };
+  if (!_supabaseClient || !currentUser) return { error: 'Not signed in' };
 
-  const { data, error } = await supabase
+  const { data, error } = await _supabaseClient
     .from('profiles')
     .update(updates)
     .eq('id', currentUser.id)
@@ -181,9 +181,9 @@ async function updateProfile(updates) {
 }
 
 async function getPublicProfile(username) {
-  if (!supabase) return null;
+  if (!_supabaseClient) return null;
 
-  const { data } = await supabase
+  const { data } = await _supabaseClient
     .from('profiles')
     .select('*, followers:follows!follows_following_id_fkey(count), following:follows!follows_follower_id_fkey(count)')
     .eq('username', username)
@@ -202,9 +202,9 @@ async function getPublicProfile(username) {
 // ============================================
 
 async function followUser(targetUserId) {
-  if (!supabase || !currentUser) return { error: 'Not signed in' };
+  if (!_supabaseClient || !currentUser) return { error: 'Not signed in' };
 
-  const { error } = await supabase
+  const { error } = await _supabaseClient
     .from('follows')
     .insert({ follower_id: currentUser.id, following_id: targetUserId });
 
@@ -212,9 +212,9 @@ async function followUser(targetUserId) {
 }
 
 async function unfollowUser(targetUserId) {
-  if (!supabase || !currentUser) return { error: 'Not signed in' };
+  if (!_supabaseClient || !currentUser) return { error: 'Not signed in' };
 
-  const { error } = await supabase
+  const { error } = await _supabaseClient
     .from('follows')
     .delete()
     .eq('follower_id', currentUser.id)
@@ -224,9 +224,9 @@ async function unfollowUser(targetUserId) {
 }
 
 async function isFollowing(targetUserId) {
-  if (!supabase || !currentUser) return false;
+  if (!_supabaseClient || !currentUser) return false;
 
-  const { data } = await supabase
+  const { data } = await _supabaseClient
     .from('follows')
     .select('follower_id')
     .eq('follower_id', currentUser.id)
@@ -237,9 +237,9 @@ async function isFollowing(targetUserId) {
 }
 
 async function getFollowers(userId, limit = 50) {
-  if (!supabase) return [];
+  if (!_supabaseClient) return [];
 
-  const { data } = await supabase
+  const { data } = await _supabaseClient
     .from('follows')
     .select('profiles!follows_follower_id_fkey(id, username, display_name, avatar_url)')
     .eq('following_id', userId)
@@ -249,9 +249,9 @@ async function getFollowers(userId, limit = 50) {
 }
 
 async function getFollowing(userId, limit = 50) {
-  if (!supabase) return [];
+  if (!_supabaseClient) return [];
 
-  const { data } = await supabase
+  const { data } = await _supabaseClient
     .from('follows')
     .select('profiles!follows_following_id_fkey(id, username, display_name, avatar_url)')
     .eq('follower_id', userId)
@@ -265,10 +265,10 @@ async function getFollowing(userId, limit = 50) {
 // ============================================
 
 async function getFollowingFeed(limit = 50) {
-  if (!supabase || !currentUser) return [];
+  if (!_supabaseClient || !currentUser) return [];
 
   // First get who we follow
-  const { data: follows } = await supabase
+  const { data: follows } = await _supabaseClient
     .from('follows')
     .select('following_id')
     .eq('follower_id', currentUser.id);
@@ -278,7 +278,7 @@ async function getFollowingFeed(limit = 50) {
   const followingIds = follows.map(f => f.following_id);
 
   // Get their scores
-  const { data } = await supabase
+  const { data } = await _supabaseClient
     .from('scores')
     .select('*, profiles!scores_user_id_fkey(id, username, display_name, avatar_url)')
     .in('user_id', followingIds)
@@ -304,8 +304,8 @@ async function submitScore(score, wave, game = 'void-rush', playerType = 'HUMAN'
   // If logged in, include auth token
   const headers = { 'Content-Type': 'application/json' };
   
-  if (supabase && currentUser) {
-    const { data: { session } } = await supabase.auth.getSession();
+  if (_supabaseClient && currentUser) {
+    const { data: { session } } = await _supabaseClient.auth.getSession();
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`;
     }
@@ -556,11 +556,13 @@ function injectAuthStyles() {
     
     .auth-magic-link {
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
     }
     
     .auth-magic-link input {
-      flex: 1;
+      flex: 1 1 200px;
+      min-width: 0;
       padding: 14px 16px;
       background: #050510;
       border: 1px solid #2a2a3e;
@@ -576,6 +578,7 @@ function injectAuthStyles() {
     }
     
     .auth-magic-link button {
+      flex: 0 0 auto;
       padding: 14px 20px;
       background: linear-gradient(135deg, #00ffaa, #00cc88);
       border: none;
@@ -595,6 +598,16 @@ function injectAuthStyles() {
     .auth-magic-link button:disabled {
       opacity: 0.7;
       cursor: not-allowed;
+    }
+    
+    @media (max-width: 480px) {
+      .auth-magic-link {
+        flex-direction: column;
+      }
+      .auth-magic-link input,
+      .auth-magic-link button {
+        width: 100%;
+      }
     }
     
     .auth-footer {

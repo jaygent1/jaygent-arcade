@@ -425,20 +425,22 @@ async function toggleFollow() {
   }
   
   const method = profile.isFollowing ? 'DELETE' : 'POST';
-  const session = await supabase.auth.getSession();
   
   try {
-    const res = await fetch(`/api/users/${encodeURIComponent(username)}/follow`, {
-      method,
-      headers: {
-        'Authorization': `Bearer ${session.data.session?.access_token}`
-      }
-    });
+    // Use the ArcadeAuth follow/unfollow methods
+    const result = profile.isFollowing 
+      ? await window.ArcadeAuth.unfollowUser(profile.id)
+      : await window.ArcadeAuth.followUser(profile.id);
     
-    const data = await res.json();
-    profile.isFollowing = data.following;
-    profile.followerCount += data.following ? 1 : -1;
+    if (result.error) {
+      console.error('Follow error:', result.error);
+      return;
+    }
+    
+    profile.isFollowing = !profile.isFollowing;
+    profile.followerCount += profile.isFollowing ? 1 : -1;
     renderProfile();
+    return;
   } catch (e) {
     console.error('Follow error:', e);
   }
