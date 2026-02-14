@@ -1769,31 +1769,37 @@ async function initSpectateMode(sessionId) {
   
   document.getElementById('message').textContent = '👁️ CONNECTING...';
   
-  // Add spectate banner
-  const banner = document.createElement('div');
-  banner.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    background: linear-gradient(90deg, #a855f7, #06b6d4);
-    color: white;
-    text-align: center;
-    padding: 10px;
-    font-family: 'Courier New', monospace;
-    font-weight: bold;
-    z-index: 300;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 15px;
-  `;
-  banner.innerHTML = `
-    <span>👁️ SPECTATING LIVE</span>
-    <span id="spectate-stats" style="opacity:0.8;font-size:0.9em;"></span>
-    <button onclick="window.location.href='/spectate.html'" style="padding:5px 15px;cursor:pointer;">EXIT</button>
-  `;
-  document.body.appendChild(banner);
+  // Check if embedded in TV mode (don't show duplicate banner)
+  const isEmbedded = urlParams.get('embed') === '1';
+  
+  if (!isEmbedded) {
+    // Add spectate banner (only when not embedded)
+    const banner = document.createElement('div');
+    banner.id = 'spectate-banner';
+    banner.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(90deg, #a855f7, #06b6d4);
+      color: white;
+      text-align: center;
+      padding: 10px;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      z-index: 300;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+    `;
+    banner.innerHTML = `
+      <span>👁️ SPECTATING LIVE</span>
+      <span id="spectate-stats" style="opacity:0.8;font-size:0.9em;"></span>
+      <button onclick="window.location.href='/spectate.html'" style="padding:5px 15px;cursor:pointer;">EXIT</button>
+    `;
+    document.body.appendChild(banner);
+  }
   
   // Try WebSocket first, fallback to optimized polling
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
