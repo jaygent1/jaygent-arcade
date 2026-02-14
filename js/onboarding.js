@@ -206,6 +206,42 @@ function showGameTutorial(gameId = 'void-rush') {
         'Clear 4 lines at once for a Tetris bonus',
         'Speed increases every 10 lines'
       ]
+    },
+    'pong': {
+      title: 'CYBER PONG',
+      controls: [
+        { keys: ['W', 'S'], label: 'Move paddle up/down' },
+        { keys: ['SPACE'], label: 'Serve ball' }
+      ],
+      tips: [
+        'Hit with paddle edge for angled shots',
+        'Ball speeds up each rally',
+        'First to 11 points wins!'
+      ]
+    },
+    'invaders': {
+      title: 'SPACE INVADERS',
+      controls: [
+        { keys: ['←', '→'], label: 'Move ship' },
+        { keys: ['SPACE'], label: 'Fire' }
+      ],
+      tips: [
+        'Clear all invaders before they reach you',
+        'Smaller invaders = more points',
+        'Watch for the bonus UFO!'
+      ]
+    },
+    'flappy': {
+      title: 'NEON FLAP',
+      controls: [
+        { keys: ['SPACE'], label: 'Flap wings' },
+        { keys: ['TAP'], label: 'Touch to flap' }
+      ],
+      tips: [
+        'Time your flaps carefully',
+        'Don\'t hit the pipes or ground',
+        'Stay calm — it\'s all about rhythm'
+      ]
     }
   };
   
