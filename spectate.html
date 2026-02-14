@@ -751,13 +751,31 @@
     const chatInput = document.getElementById('chatInput');
     const chatSend = document.getElementById('chatSend');
     const chatToggle = document.getElementById('chatToggle');
+    const chatHeader = chatPanel.querySelector('.chat-header h3');
     
     let lastMessageId = null;
+    let currentChatSession = null; // Track which game's chat we're viewing
     
-    // Fetch and render messages
+    // Set the current session for chat
+    function setChatSession(sessionId, playerName) {
+      currentChatSession = sessionId;
+      if (sessionId && playerName) {
+        chatHeader.textContent = `💬 Chat: ${playerName}`;
+      } else {
+        chatHeader.textContent = '💬 Arcade Chat';
+      }
+      lastMessageId = null;
+      fetchMessages();
+    }
+    
+    // Fetch and render messages for current session
     async function fetchMessages() {
       try {
-        const res = await fetch('/api/messages?limit=50');
+        let url = '/api/messages?limit=50';
+        if (currentChatSession) {
+          url += `&session=${currentChatSession}`;
+        }
+        const res = await fetch(url);
         const data = await res.json();
         renderMessages(data.messages || []);
       } catch (e) {
@@ -767,7 +785,10 @@
     
     function renderMessages(messages) {
       if (messages.length === 0) {
-        chatMessages.innerHTML = '<div class="chat-empty">No messages yet. Say hi! 👋</div>';
+        const hint = currentChatSession 
+          ? 'No comments on this game yet. Be the first! 💬'
+          : 'No messages yet. Watch a game to chat! 👋';
+        chatMessages.innerHTML = `<div class="chat-empty">${hint}</div>`;
         return;
       }
       
@@ -793,7 +814,7 @@
       }
     }
     
-    // Send message (for logged-in users)
+    // Send message to current session
     async function sendMessage() {
       const content = chatInput.value.trim();
       if (!content) return;
@@ -801,10 +822,15 @@
       chatSend.disabled = true;
       
       try {
+        const body = { message: content };
+        if (currentChatSession) {
+          body.session = currentChatSession;
+        }
+        
         const res = await fetch('/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: content })
+          body: JSON.stringify(body)
         });
         
         if (res.ok) {
@@ -833,6 +859,20 @@
       chatPanel.classList.toggle('minimized');
       chatToggle.textContent = chatPanel.classList.contains('minimized') ? '+' : '−';
     });
+    
+    // Update chat when TV mode switches games
+    const originalCheckForGames = checkForGames;
+    checkForGames = async function() {
+      await originalCheckForGames();
+      // If in TV mode and watching a game, set chat session
+      if (tvMode && currentTvSession) {
+        const sessions = await fetchSessions();
+        const game = sessions.find(s => s.id === currentTvSession);
+        if (game) {
+          setChatSession(currentTvSession, game.playerId);
+        }
+      }
+    };
     
     // Poll messages
     fetchMessages();
