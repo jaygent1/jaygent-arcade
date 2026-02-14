@@ -166,6 +166,46 @@ function showGameTutorial(gameId = 'void-rush') {
         'Don\'t hit yourself!',
         'Speed increases as you grow'
       ]
+    },
+    'asteroids': {
+      title: 'ASTEROID FIELD',
+      controls: [
+        { keys: ['←', '→'], label: 'Rotate ship' },
+        { keys: ['↑'], label: 'Thrust forward' },
+        { keys: ['SPACE'], label: 'Shoot' },
+        { keys: ['SHIFT'], label: 'Hyperspace (risky!)' }
+      ],
+      tips: [
+        'Large asteroids split into smaller ones',
+        'Smaller asteroids = more points',
+        'Hyperspace teleports randomly (10% explosion risk)'
+      ]
+    },
+    'gridrunner': {
+      title: 'GRID RUNNER',
+      controls: [
+        { keys: ['W', 'A', 'S', 'D'], label: 'Change direction' }
+      ],
+      tips: [
+        'Leave a trail behind you',
+        'Don\'t crash into walls or trails',
+        'Outlast the AI opponent to win!'
+      ]
+    },
+    'tetris': {
+      title: 'STACK ATTACK',
+      controls: [
+        { keys: ['←', '→'], label: 'Move piece' },
+        { keys: ['↑'], label: 'Rotate' },
+        { keys: ['↓'], label: 'Soft drop' },
+        { keys: ['SPACE'], label: 'Hard drop' },
+        { keys: ['C'], label: 'Hold piece' }
+      ],
+      tips: [
+        'Clear lines to score points',
+        'Clear 4 lines at once for a Tetris bonus',
+        'Speed increases every 10 lines'
+      ]
     }
   };
   

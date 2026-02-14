@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRID RUNNER — JAY GENT</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎩</text></svg>">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #03030a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+  }
+  .game-container {
+    position: relative;
+  }
+  canvas {
+    display: block;
+    border: 2px solid #00ffaa;
+    border-radius: 4px;
+    box-shadow: 0 0 40px rgba(0,255,170,0.2);
+  }
+  #hud {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    color: #00ffaa;
+    font-size: 18px;
+  }
+  #message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #00ffaa;
+    font-size: 24px;
+    text-align: center;
+    pointer-events: none;
+    text-shadow: 0 0 20px #00ffaa;
+  }
+  .controls {
+    position: absolute;
+    bottom: -35px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #444;
+    font-size: 12px;
+  }
+  #backBtn {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: none;
+    border: 1px solid #333;
+    color: #666;
+    padding: 8px 16px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  #backBtn:hover { border-color: #00ffaa; color: #00ffaa; }
+</style>
+</head>
+<body>
+<div class="game-container">
+  <button id="backBtn" onclick="window.location.href='/'">← Back</button>
+  <div id="hud">
+    <span>SCORE: <span id="scoreVal">0</span></span>
+    <span>SPEED: <span id="speedVal">1</span></span>
+    <span>BEST: <span id="bestVal">0</span></span>
+  </div>
+  <canvas id="game" width="600" height="600"></canvas>
+  <div id="message">GRID RUNNER<br><br>Press SPACE to start</div>
+  <div class="controls">W/A/S/D or Arrow Keys to turn · Don't crash!</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const GRID_SIZE = 10;
+const COLS = W / GRID_SIZE;
+const ROWS = H / GRID_SIZE;
+
+// Game state
+let gameRunning = false;
+let score = 0;
+let bestScore = parseInt(localStorage.getItem('gridrunner_best')) || 0;
+let speed = 1;
+let tickRate = 80; // ms between moves
+
+// Player trail
+let player = {
+  x: 0, y: 0,
+  dx: 1, dy: 0,
+  trail: [],
+  color: '#00ffaa',
+  glowColor: 'rgba(0,255,170,0.5)'
+};
+
+// AI opponent
+let ai = {
+  x: 0, y: 0,
+  dx: -1, dy: 0,
+  trail: [],
+  color: '#ff6b6b',
+  glowColor: 'rgba(255,107,107,0.5)',
+  alive: true
+};
+
+// Grid state (for collision)
+let grid = [];
+
+// Input queue (to prevent 180 turns)
+let inputQueue = [];
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    if (!gameRunning) startGame();
+    return;
+  }
+  
+  let dx = 0, dy = 0;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW') { dx = 0; dy = -1; }
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') { dx = 0; dy = 1; }
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') { dx = -1; dy = 0; }
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') { dx = 1; dy = 0; }
+  
+  if (dx !== 0 || dy !== 0) {
+    // Prevent 180 degree turns
+    if (dx !== -player.dx || dy !== -player.dy) {
+      inputQueue.push({ dx, dy });
+    }
+  }
+});
+
+function startGame() {
+  score = 0;
+  speed = 1;
+  tickRate = 80;
+  
+  // Reset grid
+  grid = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
+  
+  // Reset player
+  player.x = Math.floor(COLS * 0.25);
+  player.y = Math.floor(ROWS / 2);
+  player.dx = 1; player.dy = 0;
+  player.trail = [{ x: player.x, y: player.y }];
+  grid[player.y][player.x] = 1;
+  
+  // Reset AI
+  ai.x = Math.floor(COLS * 0.75);
+  ai.y = Math.floor(ROWS / 2);
+  ai.dx = -1; ai.dy = 0;
+  ai.trail = [{ x: ai.x, y: ai.y }];
+  ai.alive = true;
+  grid[ai.y][ai.x] = 2;
+  
+  inputQueue = [];
+  gameRunning = true;
+  document.getElementById('message').textContent = '';
+  updateHUD();
+  
+  // Track for onboarding
+  window.Onboarding?.trackGameStart('gridrunner');
+  window.Onboarding?.showTutorial('gridrunner');
+  
+  gameLoop();
+}
+
+function updateHUD() {
+  document.getElementById('scoreVal').textContent = score;
+  document.getElementById('speedVal').textContent = speed;
+  document.getElementById('bestVal').textContent = bestScore;
+}
+
+function isValidMove(x, y) {
+  return x >= 0 && x < COLS && y >= 0 && y < ROWS && grid[y][x] === 0;
+}
+
+function movePlayer() {
+  // Process input
+  if (inputQueue.length > 0) {
+    const input = inputQueue.shift();
+    player.dx = input.dx;
+    player.dy = input.dy;
+  }
+  
+  const newX = player.x + player.dx;
+  const newY = player.y + player.dy;
+  
+  // Check collision
+  if (newX < 0 || newX >= COLS || newY < 0 || newY >= ROWS || grid[newY][newX] !== 0) {
+    return false; // Crashed
+  }
+  
+  player.x = newX;
+  player.y = newY;
+  player.trail.push({ x: newX, y: newY });
+  grid[newY][newX] = 1;
+  
+  return true;
+}
+
+function moveAI() {
+  if (!ai.alive) return true;
+  
+  // Simple AI: look ahead and avoid walls
+  const possibleMoves = [
+    { dx: ai.dx, dy: ai.dy }, // Continue straight (preferred)
+    { dx: -ai.dy, dy: ai.dx }, // Turn left
+    { dx: ai.dy, dy: -ai.dx }, // Turn right
+  ];
+  
+  // Score each move by how much space is ahead
+  let bestMove = null;
+  let bestSpace = -1;
+  
+  for (const move of possibleMoves) {
+    const testX = ai.x + move.dx;
+    const testY = ai.y + move.dy;
+    
+    if (!isValidMove(testX, testY)) continue;
+    
+    // Count open space ahead
+    let space = 0;
+    let tx = testX, ty = testY;
+    for (let i = 0; i < 20; i++) {
+      tx += move.dx;
+      ty += move.dy;
+      if (!isValidMove(tx, ty)) break;
+      space++;
+    }
+    
+    // Add randomness to make it less predictable
+    space += Math.random() * 3;
+    
+    if (space > bestSpace) {
+      bestSpace = space;
+      bestMove = move;
+    }
+  }
+  
+  if (!bestMove) {
+    ai.alive = false;
+    return true; // AI crashed
+  }
+  
+  ai.dx = bestMove.dx;
+  ai.dy = bestMove.dy;
+  
+  const newX = ai.x + ai.dx;
+  const newY = ai.y + ai.dy;
+  
+  ai.x = newX;
+  ai.y = newY;
+  ai.trail.push({ x: newX, y: newY });
+  grid[newY][newX] = 2;
+  
+  return true;
+}
+
+function gameOver(won) {
+  gameRunning = false;
+  
+  if (won) {
+    score += 500; // Bonus for winning
+  }
+  
+  // Update best score
+  if (score > bestScore) {
+    bestScore = score;
+    localStorage.setItem('gridrunner_best', bestScore);
+  }
+  
+  updateHUD();
+  
+  const msg = won 
+    ? `VICTORY!<br>Score: ${score}<br><br>Press SPACE to play again`
+    : `CRASHED!<br>Score: ${score}<br><br>Press SPACE to try again`;
+  document.getElementById('message').innerHTML = msg;
+  
+  // Track for onboarding
+  window.Onboarding?.trackGameEnd('gridrunner', score, speed);
+  
+  // Submit score
+  submitScore();
+}
+
+async function submitScore() {
+  const name = localStorage.getItem('arcade_name') || 'AAA';
+  try {
+    if (window.ArcadeAuth?.submitScore) {
+      await window.ArcadeAuth.submitScore(score, speed, 'gridrunner', 'HUMAN');
+    } else {
+      await fetch('/api/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, score, wave: speed, game: 'gridrunner' })
+      });
+    }
+  } catch (e) {}
+}
+
+function tick() {
+  // Move entities
+  const playerAlive = movePlayer();
+  moveAI();
+  
+  if (!playerAlive) {
+    gameOver(false);
+    return;
+  }
+  
+  if (!ai.alive) {
+    gameOver(true);
+    return;
+  }
+  
+  // Score for surviving
+  score += speed;
+  updateHUD();
+  
+  // Increase speed over time
+  if (score > 0 && score % 500 === 0) {
+    speed++;
+    tickRate = Math.max(30, tickRate - 5);
+    updateHUD();
+  }
+}
+
+function draw() {
+  // Background with grid
+  ctx.fillStyle = '#03030a';
+  ctx.fillRect(0, 0, W, H);
+  
+  // Grid lines
+  ctx.strokeStyle = '#0a0a15';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += GRID_SIZE) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= H; y += GRID_SIZE) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  
+  // Draw trails with glow
+  function drawTrail(entity) {
+    if (entity.trail.length < 2) return;
+    
+    // Glow
+    ctx.strokeStyle = entity.glowColor;
+    ctx.lineWidth = GRID_SIZE + 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(entity.trail[0].x * GRID_SIZE + GRID_SIZE/2, entity.trail[0].y * GRID_SIZE + GRID_SIZE/2);
+    for (let i = 1; i < entity.trail.length; i++) {
+      ctx.lineTo(entity.trail[i].x * GRID_SIZE + GRID_SIZE/2, entity.trail[i].y * GRID_SIZE + GRID_SIZE/2);
+    }
+    ctx.stroke();
+    
+    // Core
+    ctx.strokeStyle = entity.color;
+    ctx.lineWidth = GRID_SIZE - 2;
+    ctx.beginPath();
+    ctx.moveTo(entity.trail[0].x * GRID_SIZE + GRID_SIZE/2, entity.trail[0].y * GRID_SIZE + GRID_SIZE/2);
+    for (let i = 1; i < entity.trail.length; i++) {
+      ctx.lineTo(entity.trail[i].x * GRID_SIZE + GRID_SIZE/2, entity.trail[i].y * GRID_SIZE + GRID_SIZE/2);
+    }
+    ctx.stroke();
+  }
+  
+  drawTrail(player);
+  if (ai.alive) drawTrail(ai);
+  
+  // Draw heads
+  function drawHead(entity) {
+    const x = entity.x * GRID_SIZE + GRID_SIZE/2;
+    const y = entity.y * GRID_SIZE + GRID_SIZE/2;
+    
+    // Glow
+    ctx.fillStyle = entity.glowColor;
+    ctx.beginPath();
+    ctx.arc(x, y, GRID_SIZE, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Core
+    ctx.fillStyle = entity.color;
+    ctx.beginPath();
+    ctx.arc(x, y, GRID_SIZE/2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Direction indicator
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x + entity.dx * 3, y + entity.dy * 3, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  drawHead(player);
+  if (ai.alive) drawHead(ai);
+}
+
+let lastTick = 0;
+function gameLoop(timestamp = 0) {
+  if (!gameRunning) {
+    draw();
+    return;
+  }
+  
+  if (timestamp - lastTick >= tickRate) {
+    tick();
+    lastTick = timestamp;
+  }
+  
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Initial draw
+draw();
+updateHUD();
+</script>
+</body>
+</html>
