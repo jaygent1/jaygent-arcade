@@ -33,6 +33,97 @@ const sessions = new Map(); // sessionId -> game instance
 const apiKeys = new Map();  // apiKey -> agentInfo
 
 // ============================================
+// Agent Registration & Storage
+// ============================================
+
+const AGENTS_FILE = path.join(__dirname, 'agents.json');
+
+function loadAgents() {
+  try {
+    if (fs.existsSync(AGENTS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
+      // Rebuild apiKeys map
+      for (const agent of data.agents || []) {
+        apiKeys.set(agent.apiKey, agent);
+      }
+      return data;
+    }
+  } catch (e) {
+    console.error('Failed to load agents:', e);
+  }
+  return { agents: [], nextId: 1 };
+}
+
+function saveAgents(data) {
+  fs.writeFileSync(AGENTS_FILE, JSON.stringify(data, null, 2));
+}
+
+function generateApiKey() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let key = 'jak_'; // Jay gent Api Key
+  for (let i = 0; i < 32; i++) {
+    key += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return key;
+}
+
+function registerAgent(name, description, contact) {
+  const data = loadAgents();
+  
+  // Check if name already exists
+  const existing = data.agents.find(a => a.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    return { error: 'Agent name already taken' };
+  }
+  
+  const agent = {
+    id: `agt_${data.nextId++}`,
+    apiKey: generateApiKey(),
+    name: name.slice(0, 20),
+    displayName: name.slice(0, 3).toUpperCase(), // 3-char for leaderboard
+    description: description?.slice(0, 200) || '',
+    contact: contact?.slice(0, 100) || '',
+    createdAt: Date.now(),
+    gamesPlayed: 0,
+    totalScore: 0,
+    bestScore: 0,
+    bestWave: 0
+  };
+  
+  data.agents.push(agent);
+  saveAgents(data);
+  apiKeys.set(agent.apiKey, agent);
+  
+  return { agent };
+}
+
+function getAgentByApiKey(apiKey) {
+  return apiKeys.get(apiKey);
+}
+
+function updateAgentStats(apiKey, score, wave) {
+  const agent = apiKeys.get(apiKey);
+  if (!agent) return;
+  
+  agent.gamesPlayed++;
+  agent.totalScore += score;
+  if (score > agent.bestScore) agent.bestScore = score;
+  if (wave > agent.bestWave) agent.bestWave = wave;
+  
+  // Persist
+  const data = loadAgents();
+  const idx = data.agents.findIndex(a => a.id === agent.id);
+  if (idx >= 0) {
+    data.agents[idx] = agent;
+    saveAgents(data);
+  }
+}
+
+// Load agents on startup
+loadAgents();
+console.log(`Loaded ${apiKeys.size} registered agents`);
+
+// ============================================
 // Replay Storage (in-memory, last 20 games)
 // ============================================
 
@@ -154,6 +245,104 @@ const server = http.createServer((req, res) => {
   // Route handling
   (async () => {
     try {
+      // ========== AGENT REGISTRATION API ==========
+      
+      // Register new agent
+      if (url.pathname === '/api/agents/register' && req.method === 'POST') {
+        const data = await parseBody();
+        const { name, description, contact } = data;
+        
+        if (!name || name.length < 2 || name.length > 20) {
+          return json({ error: 'Name must be 2-20 characters' }, 400);
+        }
+        
+        if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+          return json({ error: 'Name can only contain letters, numbers, underscores, dashes' }, 400);
+        }
+        
+        const result = registerAgent(name, description, contact);
+        if (result.error) {
+          return json({ error: result.error }, 400);
+        }
+        
+        // Return agent info (including API key - only shown once!)
+        return json({
+          message: 'Agent registered successfully! Save your API key - it won\'t be shown again.',
+          agentId: result.agent.id,
+          apiKey: result.agent.apiKey,
+          name: result.agent.name,
+          displayName: result.agent.displayName
+        });
+      }
+      
+      // Get agent profile (by ID or current via API key)
+      if (url.pathname === '/api/agents/me' && req.method === 'GET') {
+        const apiKey = req.headers['x-api-key'];
+        if (!apiKey) {
+          return json({ error: 'API key required (X-API-Key header)' }, 401);
+        }
+        
+        const agent = getAgentByApiKey(apiKey);
+        if (!agent) {
+          return json({ error: 'Invalid API key' }, 401);
+        }
+        
+        // Return profile without exposing API key
+        return json({
+          id: agent.id,
+          name: agent.name,
+          displayName: agent.displayName,
+          description: agent.description,
+          gamesPlayed: agent.gamesPlayed,
+          totalScore: agent.totalScore,
+          bestScore: agent.bestScore,
+          bestWave: agent.bestWave,
+          createdAt: agent.createdAt
+        });
+      }
+      
+      // List all agents (public profiles)
+      if (url.pathname === '/api/agents' && req.method === 'GET') {
+        const data = loadAgents();
+        const agents = data.agents.map(a => ({
+          id: a.id,
+          name: a.name,
+          displayName: a.displayName,
+          description: a.description,
+          gamesPlayed: a.gamesPlayed,
+          bestScore: a.bestScore,
+          bestWave: a.bestWave
+        }));
+        
+        // Sort by best score
+        agents.sort((a, b) => b.bestScore - a.bestScore);
+        
+        return json({ agents });
+      }
+      
+      // Get specific agent profile
+      if (url.pathname.match(/^\/api\/agents\/agt_[a-z0-9]+$/) && req.method === 'GET') {
+        const agentId = url.pathname.split('/')[3];
+        const data = loadAgents();
+        const agent = data.agents.find(a => a.id === agentId);
+        
+        if (!agent) {
+          return json({ error: 'Agent not found' }, 404);
+        }
+        
+        return json({
+          id: agent.id,
+          name: agent.name,
+          displayName: agent.displayName,
+          description: agent.description,
+          gamesPlayed: agent.gamesPlayed,
+          totalScore: agent.totalScore,
+          bestScore: agent.bestScore,
+          bestWave: agent.bestWave,
+          createdAt: agent.createdAt
+        });
+      }
+      
       // ========== LEADERBOARD API ==========
       
       if (url.pathname === '/api/scores') {
@@ -178,7 +367,16 @@ const server = http.createServer((req, res) => {
             return json({ error: 'Invalid data' }, 400);
           }
           
-          // Check for authenticated user
+          // Check for agent API key
+          const apiKey = req.headers['x-api-key'];
+          const agent = apiKey ? getAgentByApiKey(apiKey) : null;
+          
+          // Update agent stats if authenticated
+          if (agent) {
+            updateAgentStats(apiKey, Math.floor(score), Math.floor(wave));
+          }
+          
+          // Check for authenticated user (OAuth)
           const user = db?.isConfigured ? await db.authMiddleware(req) : null;
           
           if (db?.isConfigured) {
@@ -187,9 +385,9 @@ const server = http.createServer((req, res) => {
               score: Math.floor(score),
               wave: Math.floor(wave),
               game: game || 'void-rush',
-              player_type: playerType || 'HUMAN',
+              player_type: agent ? 'AGENT' : (playerType || 'HUMAN'),
               user_id: user?.id || null,
-              guest_name: user ? null : String(name || 'AAA').slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+              guest_name: agent ? agent.displayName : (user ? null : String(name || 'AAA').slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' '))
             };
             
             const { data: result, error } = await db.submitScore(scoreData);
@@ -198,24 +396,30 @@ const server = http.createServer((req, res) => {
               return json({ error: 'Failed to submit score' }, 500);
             }
             
-            return json({ success: true, id: result?.id });
+            return json({ 
+              success: true, 
+              id: result?.id,
+              agent: agent ? { id: agent.id, name: agent.name } : null
+            });
           }
           
           // Fallback to local file
-          if (!name) {
-            return json({ error: 'Name required in guest mode' }, 400);
-          }
+          const displayName = agent ? agent.displayName : (name ? String(name).slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ') : 'AAA');
           
-          const cleanName = String(name).slice(0, 3).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
           const rank = addScore({
-            name: cleanName,
+            name: displayName,
             score: Math.floor(score),
             wave: Math.floor(wave),
-            playerType: playerType || 'HUMAN',
+            playerType: agent ? 'AGENT' : (playerType || 'HUMAN'),
+            agentId: agent?.id || null,
             date: Date.now()
           });
           
-          return json({ success: true, rank });
+          return json({ 
+            success: true, 
+            rank,
+            agent: agent ? { id: agent.id, name: agent.name } : null
+          });
         }
       }
       
@@ -241,11 +445,18 @@ const server = http.createServer((req, res) => {
       // Start new game session
       if (url.pathname === '/api/games/void-rush/start' && req.method === 'POST') {
         const data = await parseBody();
-        const playerId = data.playerId || `anon_${Math.random().toString(36).substr(2, 6)}`;
-        const playerType = data.playerType || 'AGENT';
+        
+        // Check for agent API key
+        const apiKey = req.headers['x-api-key'];
+        const agent = apiKey ? getAgentByApiKey(apiKey) : null;
+        
+        const playerId = agent ? agent.name : (data.playerId || `anon_${Math.random().toString(36).substr(2, 6)}`);
+        const playerType = agent ? 'AGENT' : (data.playerType || 'AGENT');
         
         const game = new VoidRushGame(playerId, playerType);
         game.replayFrames = []; // Initialize replay storage
+        game.agentId = agent?.id || null;
+        game.apiKey = apiKey || null;
         sessions.set(game.id, game);
         
         // Run initial tick to set up
@@ -258,6 +469,7 @@ const server = http.createServer((req, res) => {
           sessionId: game.id,
           playerId: game.playerId,
           playerType: game.playerType,
+          agent: agent ? { id: agent.id, name: agent.name } : null,
           state: game.getState()
         });
       }
@@ -421,19 +633,33 @@ const server = http.createServer((req, res) => {
       if (url.pathname === '/api' && req.method === 'GET') {
         return json({
           name: 'Jay Gent Arcade API',
-          version: '1.0.0',
+          version: '2.0.0',
+          docs: 'See AGENT_API.md for full documentation',
           endpoints: {
-            'GET /api/games': 'List available games',
-            'GET /api/scores': 'Get leaderboard',
-            'POST /api/scores': 'Submit score (name, score, wave, playerType)',
-            'POST /api/games/void-rush/start': 'Start new game session',
-            'GET /api/games/void-rush/:sessionId/state': 'Get current game state',
-            'POST /api/games/void-rush/:sessionId/action': 'Send action, run tick, get new state',
-            'POST /api/games/void-rush/:sessionId/end': 'End game and submit score',
-            'GET /api/sessions': 'List active game sessions',
-            'GET /api/replays': 'List recent game replays (last 20)',
-            'GET /api/replays/:replayId': 'Get full replay data with frames'
+            agents: {
+              'POST /api/agents/register': 'Register new agent (returns API key)',
+              'GET /api/agents': 'List all agents',
+              'GET /api/agents/me': 'Get your agent profile (requires X-API-Key)',
+              'GET /api/agents/:agentId': 'Get agent by ID'
+            },
+            games: {
+              'GET /api/games': 'List available games',
+              'POST /api/games/void-rush/start': 'Start new game session',
+              'GET /api/games/void-rush/:sessionId/state': 'Get current game state',
+              'POST /api/games/void-rush/:sessionId/action': 'Send action, run tick, get new state',
+              'POST /api/games/void-rush/:sessionId/end': 'End game and submit score'
+            },
+            scores: {
+              'GET /api/scores': 'Get leaderboard',
+              'POST /api/scores': 'Submit score (include X-API-Key for agent tracking)'
+            },
+            other: {
+              'GET /api/sessions': 'List active game sessions',
+              'GET /api/replays': 'List recent game replays',
+              'GET /api/replays/:replayId': 'Get full replay data'
+            }
           },
+          authentication: 'Include X-API-Key header with your agent API key',
           actions: {
             movement: ['left', 'right', 'up', 'down'],
             combat: ['shoot', 'bomb'],
