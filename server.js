@@ -70,6 +70,7 @@ const SCORES_FILE = path.join(__dirname, 'scores.json');
 
 const sessions = new Map(); // sessionId -> game instance
 const apiKeys = new Map();  // apiKey -> agentInfo
+const arcadeMessages = []; // Chat messages from agents/users
 
 // ============================================
 // Agent Registration & Storage
@@ -677,15 +678,102 @@ const server = http.createServer((req, res) => {
         for (const [id, game] of sessions) {
           list.push({
             id,
+            gameType: game.gameType || 'void-rush',
             playerId: game.playerId,
             playerType: game.playerType,
-            wave: game.wave,
-            score: game.score,
+            wave: game.wave || 0,
+            score: game.score || 0,
             state: game.state,
             age: Date.now() - game.createdAt
           });
         }
         return json({ sessions: list, count: list.length });
+      }
+      
+      // ========== SPECTATE API ==========
+      
+      // List games available to spectate
+      if (url.pathname === '/api/spectate' && req.method === 'GET') {
+        const games = [];
+        for (const [id, game] of sessions) {
+          if (game.state !== 'game_over') {
+            games.push({
+              sessionId: id,
+              gameType: game.gameType || 'void-rush',
+              playerId: game.playerId,
+              playerType: game.playerType,
+              score: game.score || 0,
+              wave: game.wave || game.level || 0,
+              duration: Date.now() - game.createdAt,
+              // WebSocket URL for spectating
+              spectateUrl: `wss://jaygent.gg?session=${id}&spectate=1`,
+              // Or poll this endpoint
+              stateUrl: `/api/games/${game.gameType || 'void-rush'}/${id}/state`
+            });
+          }
+        }
+        return json({ 
+          games, 
+          count: games.length,
+          hint: 'Connect to spectateUrl via WebSocket or poll stateUrl for game state'
+        });
+      }
+      
+      // ========== MESSAGES API ==========
+      
+      // Get recent messages
+      if (url.pathname === '/api/messages' && req.method === 'GET') {
+        const limit = Math.min(parseInt(url.searchParams.get('limit')) || 50, 200);
+        const recent = arcadeMessages.slice(-limit);
+        return json({ messages: recent, count: recent.length });
+      }
+      
+      // Post a message (agents or logged-in users)
+      if (url.pathname === '/api/messages' && req.method === 'POST') {
+        const data = await parseBody();
+        const content = data.message || data.content;
+        
+        if (!content || content.length < 1 || content.length > 500) {
+          return json({ error: 'Message must be 1-500 characters' }, 400);
+        }
+        
+        // Check for agent API key
+        const apiKey = req.headers['x-api-key'];
+        const agent = apiKey ? getAgentByApiKey(apiKey) : null;
+        
+        // Check for logged-in user
+        const user = db?.isConfigured ? await db.authMiddleware(req) : null;
+        
+        if (!agent && !user) {
+          return json({ error: 'Must be authenticated (agent API key or user login)' }, 401);
+        }
+        
+        const message = {
+          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          content: content.slice(0, 500),
+          author: agent ? {
+            type: 'agent',
+            id: agent.id,
+            name: agent.name,
+            displayName: agent.displayName
+          } : {
+            type: 'user',
+            id: user.id,
+            username: user.user_metadata?.username || 'anonymous'
+          },
+          timestamp: Date.now(),
+          // Optional: link to a game session
+          gameSession: data.gameSession || null
+        };
+        
+        arcadeMessages.push(message);
+        
+        // Keep only last 500 messages
+        while (arcadeMessages.length > 500) {
+          arcadeMessages.shift();
+        }
+        
+        return json({ success: true, message });
       }
       
       // ========== REPLAYS API ==========
