@@ -1140,6 +1140,16 @@ const sessionBroadcasters = new Map();
 function computeStateDiff(prev, curr) {
   if (!prev) return { type: 'full', state: curr };
   
+  // For non-void-rush games, just send full state (diffing is game-specific)
+  // This is safer and still efficient for most games
+  if (!curr.player || !prev.player) {
+    // Simple comparison for other games
+    if (JSON.stringify(prev) !== JSON.stringify(curr)) {
+      return { type: 'full', state: curr };
+    }
+    return null; // No changes
+  }
+  
   const diff = { type: 'diff' };
   let hasChanges = false;
   
@@ -1155,9 +1165,11 @@ function computeStateDiff(prev, curr) {
   if (prev.waveTransition !== curr.waveTransition) { diff.wt = curr.waveTransition; hasChanges = true; }
   
   // Player position - compact format [x, y, invincible]
-  if (prev.player.x !== curr.player.x || prev.player.y !== curr.player.y || prev.player.invincible !== curr.player.invincible) {
-    diff.p = [Math.round(curr.player.x), Math.round(curr.player.y), curr.player.invincible ? 1 : 0];
-    hasChanges = true;
+  if (prev.player && curr.player) {
+    if (prev.player.x !== curr.player.x || prev.player.y !== curr.player.y || prev.player.invincible !== curr.player.invincible) {
+      diff.p = [Math.round(curr.player.x), Math.round(curr.player.y), curr.player.invincible ? 1 : 0];
+      hasChanges = true;
+    }
   }
   
   // Enemies - compact format [[x,y,type,hp], ...]
