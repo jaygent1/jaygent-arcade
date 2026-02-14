@@ -1794,6 +1794,767 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   loop();
 })();
 
+// Asteroids Preview
+(function() {
+  const canvas = document.getElementById('asteroidsPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  
+  // Ship
+  let ship = { x: W/2, y: H/2, angle: 0, vx: 0, vy: 0 };
+  
+  // Asteroids
+  let asteroids = [];
+  for (let i = 0; i < 5; i++) {
+    asteroids.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 2,
+      vy: (Math.random() - 0.5) * 2,
+      size: 20 + Math.random() * 20,
+      angle: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.03
+    });
+  }
+  
+  // Bullets
+  let bullets = [];
+  let shootTimer = 0;
+  
+  function update() {
+    // Auto-rotate toward nearest asteroid
+    let nearest = asteroids[0];
+    let minDist = Infinity;
+    asteroids.forEach(a => {
+      const d = Math.hypot(a.x - ship.x, a.y - ship.y);
+      if (d < minDist) { minDist = d; nearest = a; }
+    });
+    
+    const targetAngle = Math.atan2(nearest.y - ship.y, nearest.x - ship.x);
+    let diff = targetAngle - ship.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    ship.angle += diff * 0.05;
+    
+    // Thrust toward target
+    ship.vx += Math.cos(ship.angle) * 0.1;
+    ship.vy += Math.sin(ship.angle) * 0.1;
+    ship.vx *= 0.98;
+    ship.vy *= 0.98;
+    ship.x = (ship.x + ship.vx + W) % W;
+    ship.y = (ship.y + ship.vy + H) % H;
+    
+    // Shoot
+    shootTimer++;
+    if (shootTimer > 30 && minDist < 150) {
+      bullets.push({
+        x: ship.x + Math.cos(ship.angle) * 15,
+        y: ship.y + Math.sin(ship.angle) * 15,
+        vx: Math.cos(ship.angle) * 5,
+        vy: Math.sin(ship.angle) * 5,
+        life: 50
+      });
+      shootTimer = 0;
+    }
+    
+    // Update bullets
+    bullets.forEach(b => {
+      b.x += b.vx;
+      b.y += b.vy;
+      b.life--;
+    });
+    bullets = bullets.filter(b => b.life > 0);
+    
+    // Update asteroids
+    asteroids.forEach(a => {
+      a.x = (a.x + a.vx + W) % W;
+      a.y = (a.y + a.vy + H) % H;
+      a.angle += a.spin;
+    });
+    
+    // Collision: bullet hits asteroid
+    bullets.forEach(b => {
+      asteroids.forEach(a => {
+        if (Math.hypot(b.x - a.x, b.y - a.y) < a.size) {
+          b.life = 0;
+          a.size -= 5;
+          if (a.size < 10) {
+            a.x = Math.random() * W;
+            a.y = Math.random() * H;
+            a.size = 25 + Math.random() * 15;
+          }
+        }
+      });
+    });
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#03030a';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Stars
+    ctx.fillStyle = '#333';
+    for (let i = 0; i < 30; i++) {
+      ctx.fillRect((i * 47) % W, (i * 31) % H, 1, 1);
+    }
+    
+    // Asteroids
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    asteroids.forEach(a => {
+      ctx.save();
+      ctx.translate(a.x, a.y);
+      ctx.rotate(a.angle);
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        const r = a.size * (0.8 + Math.sin(i * 3) * 0.2);
+        if (i === 0) ctx.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
+        else ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    });
+    
+    // Ship
+    ctx.save();
+    ctx.translate(ship.x, ship.y);
+    ctx.rotate(ship.angle);
+    ctx.strokeStyle = '#00ffaa';
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(15, 0);
+    ctx.lineTo(-10, -8);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(-10, 8);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    
+    // Bullets
+    ctx.fillStyle = '#ff6b6b';
+    bullets.forEach(b => {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+// Grid Runner Preview
+(function() {
+  const canvas = document.getElementById('gridPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  const CELL = 8;
+  
+  // Trails
+  let p1Trail = [{ x: 50, y: H/2 }];
+  let p2Trail = [{ x: W - 50, y: H/2 }];
+  let p1Dir = { x: 1, y: 0 };
+  let p2Dir = { x: -1, y: 0 };
+  let frame = 0;
+  
+  function reset() {
+    p1Trail = [{ x: 50, y: H/2 }];
+    p2Trail = [{ x: W - 50, y: H/2 }];
+    p1Dir = { x: 1, y: 0 };
+    p2Dir = { x: -1, y: 0 };
+  }
+  
+  function update() {
+    frame++;
+    if (frame % 2 !== 0) return;
+    
+    // AI: change direction occasionally, avoid walls
+    const p1Head = p1Trail[p1Trail.length - 1];
+    const p2Head = p2Trail[p2Trail.length - 1];
+    
+    // P1 AI
+    if (Math.random() < 0.05 || p1Head.x < 20 || p1Head.x > W - 20 || p1Head.y < 20 || p1Head.y > H - 20) {
+      const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+      p1Dir = dirs[Math.floor(Math.random() * dirs.length)];
+    }
+    
+    // P2 AI
+    if (Math.random() < 0.05 || p2Head.x < 20 || p2Head.x > W - 20 || p2Head.y < 20 || p2Head.y > H - 20) {
+      const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+      p2Dir = dirs[Math.floor(Math.random() * dirs.length)];
+    }
+    
+    // Move
+    p1Trail.push({ x: p1Head.x + p1Dir.x * CELL, y: p1Head.y + p1Dir.y * CELL });
+    p2Trail.push({ x: p2Head.x + p2Dir.x * CELL, y: p2Head.y + p2Dir.y * CELL });
+    
+    // Limit trail length
+    if (p1Trail.length > 100) p1Trail.shift();
+    if (p2Trail.length > 100) p2Trail.shift();
+    
+    // Collision check - reset on crash
+    const h1 = p1Trail[p1Trail.length - 1];
+    const h2 = p2Trail[p2Trail.length - 1];
+    if (h1.x < 0 || h1.x > W || h1.y < 0 || h1.y > H ||
+        h2.x < 0 || h2.x > W || h2.y < 0 || h2.y > H) {
+      reset();
+    }
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    for (let x = 0; x <= W; x += CELL * 2) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= H; y += CELL * 2) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+    
+    // P1 trail (cyan)
+    ctx.strokeStyle = '#00ffff';
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    p1Trail.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+    
+    // P2 trail (orange)
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.shadowColor = '#ff6b6b';
+    ctx.beginPath();
+    p2Trail.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+// Tetris Preview
+(function() {
+  const canvas = document.getElementById('tetrisPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  
+  const COLS = 10, ROWS = 14, CELL = 15;
+  const OFFSET_X = (W - COLS * CELL) / 2;
+  const OFFSET_Y = 5;
+  
+  const SHAPES = [
+    [[1,1,1,1]], // I
+    [[1,1],[1,1]], // O
+    [[0,1,0],[1,1,1]], // T
+    [[1,0,0],[1,1,1]], // L
+    [[0,0,1],[1,1,1]], // J
+    [[0,1,1],[1,1,0]], // S
+    [[1,1,0],[0,1,1]]  // Z
+  ];
+  const COLORS = ['#00ffff', '#ffff00', '#a855f7', '#ff9500', '#0066ff', '#00ff00', '#ff0000'];
+  
+  let grid = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
+  let piece = null;
+  let pieceX = 0, pieceY = 0, pieceColor = 0;
+  let dropTimer = 0;
+  
+  function spawnPiece() {
+    pieceColor = Math.floor(Math.random() * SHAPES.length);
+    piece = SHAPES[pieceColor].map(r => [...r]);
+    pieceX = Math.floor((COLS - piece[0].length) / 2);
+    pieceY = 0;
+  }
+  
+  function canMove(dx, dy) {
+    for (let y = 0; y < piece.length; y++) {
+      for (let x = 0; x < piece[y].length; x++) {
+        if (piece[y][x]) {
+          const nx = pieceX + x + dx;
+          const ny = pieceY + y + dy;
+          if (nx < 0 || nx >= COLS || ny >= ROWS) return false;
+          if (ny >= 0 && grid[ny][nx]) return false;
+        }
+      }
+    }
+    return true;
+  }
+  
+  function lock() {
+    for (let y = 0; y < piece.length; y++) {
+      for (let x = 0; x < piece[y].length; x++) {
+        if (piece[y][x] && pieceY + y >= 0) {
+          grid[pieceY + y][pieceX + x] = pieceColor + 1;
+        }
+      }
+    }
+    // Clear lines
+    for (let y = ROWS - 1; y >= 0; y--) {
+      if (grid[y].every(c => c > 0)) {
+        grid.splice(y, 1);
+        grid.unshift(Array(COLS).fill(0));
+        y++;
+      }
+    }
+    // Check top
+    if (grid[0].some(c => c > 0)) {
+      grid = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
+    }
+    spawnPiece();
+  }
+  
+  function update() {
+    if (!piece) spawnPiece();
+    
+    dropTimer++;
+    if (dropTimer > 15) {
+      dropTimer = 0;
+      if (canMove(0, 1)) {
+        pieceY++;
+      } else {
+        lock();
+      }
+    }
+    
+    // AI: move toward best position
+    if (Math.random() < 0.3) {
+      const bestX = Math.floor(Math.random() * (COLS - piece[0].length));
+      if (pieceX < bestX && canMove(1, 0)) pieceX++;
+      else if (pieceX > bestX && canMove(-1, 0)) pieceX--;
+    }
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Grid background
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(OFFSET_X, OFFSET_Y, COLS * CELL, ROWS * CELL);
+    
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    for (let x = 0; x <= COLS; x++) {
+      ctx.beginPath();
+      ctx.moveTo(OFFSET_X + x * CELL, OFFSET_Y);
+      ctx.lineTo(OFFSET_X + x * CELL, OFFSET_Y + ROWS * CELL);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= ROWS; y++) {
+      ctx.beginPath();
+      ctx.moveTo(OFFSET_X, OFFSET_Y + y * CELL);
+      ctx.lineTo(OFFSET_X + COLS * CELL, OFFSET_Y + y * CELL);
+      ctx.stroke();
+    }
+    
+    // Locked pieces
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (grid[y][x]) {
+          ctx.fillStyle = COLORS[grid[y][x] - 1];
+          ctx.fillRect(OFFSET_X + x * CELL + 1, OFFSET_Y + y * CELL + 1, CELL - 2, CELL - 2);
+        }
+      }
+    }
+    
+    // Current piece
+    if (piece) {
+      ctx.fillStyle = COLORS[pieceColor];
+      ctx.shadowColor = COLORS[pieceColor];
+      ctx.shadowBlur = 10;
+      for (let y = 0; y < piece.length; y++) {
+        for (let x = 0; x < piece[y].length; x++) {
+          if (piece[y][x]) {
+            ctx.fillRect(OFFSET_X + (pieceX + x) * CELL + 1, OFFSET_Y + (pieceY + y) * CELL + 1, CELL - 2, CELL - 2);
+          }
+        }
+      }
+      ctx.shadowBlur = 0;
+    }
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+// Pong Preview
+(function() {
+  const canvas = document.getElementById('pongPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  
+  let ball = { x: W/2, y: H/2, vx: 3, vy: 2 };
+  let p1Y = H/2, p2Y = H/2;
+  const PADDLE_H = 50, PADDLE_W = 8;
+  
+  function update() {
+    // Ball
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+    
+    // Top/bottom bounce
+    if (ball.y < 5 || ball.y > H - 5) ball.vy *= -1;
+    
+    // Paddle collision
+    if (ball.x < 25 && ball.y > p1Y - PADDLE_H/2 && ball.y < p1Y + PADDLE_H/2) {
+      ball.vx = Math.abs(ball.vx);
+      ball.vy += (ball.y - p1Y) * 0.1;
+    }
+    if (ball.x > W - 25 && ball.y > p2Y - PADDLE_H/2 && ball.y < p2Y + PADDLE_H/2) {
+      ball.vx = -Math.abs(ball.vx);
+      ball.vy += (ball.y - p2Y) * 0.1;
+    }
+    
+    // Score - reset ball
+    if (ball.x < 0 || ball.x > W) {
+      ball.x = W/2;
+      ball.y = H/2;
+      ball.vx = (Math.random() > 0.5 ? 1 : -1) * 3;
+      ball.vy = (Math.random() - 0.5) * 4;
+    }
+    
+    // AI paddles
+    p1Y += (ball.y - p1Y) * 0.1;
+    p2Y += (ball.y - p2Y) * 0.08;
+    
+    // Clamp
+    p1Y = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, p1Y));
+    p2Y = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, p2Y));
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Center line
+    ctx.strokeStyle = '#333';
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(W/2, 0);
+    ctx.lineTo(W/2, H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Paddles
+    ctx.fillStyle = '#00ffaa';
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 10;
+    ctx.fillRect(15, p1Y - PADDLE_H/2, PADDLE_W, PADDLE_H);
+    
+    ctx.fillStyle = '#ff6b6b';
+    ctx.shadowColor = '#ff6b6b';
+    ctx.fillRect(W - 15 - PADDLE_W, p2Y - PADDLE_H/2, PADDLE_W, PADDLE_H);
+    
+    // Ball
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+// Space Invaders Preview
+(function() {
+  const canvas = document.getElementById('invadersPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  
+  // Invaders
+  let invaders = [];
+  let invaderDir = 1;
+  let invaderSpeed = 0.5;
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 8; col++) {
+      invaders.push({ x: 60 + col * 35, y: 30 + row * 28, alive: true });
+    }
+  }
+  
+  // Player
+  let player = { x: W/2 };
+  let bullets = [];
+  let invaderBullets = [];
+  let shootTimer = 0;
+  
+  function update() {
+    // Move invaders
+    let hitEdge = false;
+    invaders.forEach(inv => {
+      if (inv.alive) {
+        inv.x += invaderDir * invaderSpeed;
+        if (inv.x < 30 || inv.x > W - 30) hitEdge = true;
+      }
+    });
+    if (hitEdge) {
+      invaderDir *= -1;
+      invaders.forEach(inv => inv.y += 10);
+    }
+    
+    // AI player - track nearest invader
+    const alive = invaders.filter(i => i.alive);
+    if (alive.length > 0) {
+      const target = alive.reduce((a, b) => b.y > a.y ? b : a);
+      player.x += (target.x - player.x) * 0.05;
+    }
+    
+    // Player shoot
+    shootTimer++;
+    if (shootTimer > 20) {
+      bullets.push({ x: player.x, y: H - 30 });
+      shootTimer = 0;
+    }
+    
+    // Invader shoot
+    if (Math.random() < 0.02) {
+      const shooter = alive[Math.floor(Math.random() * alive.length)];
+      if (shooter) invaderBullets.push({ x: shooter.x, y: shooter.y + 10 });
+    }
+    
+    // Move bullets
+    bullets.forEach(b => b.y -= 5);
+    invaderBullets.forEach(b => b.y += 3);
+    bullets = bullets.filter(b => b.y > 0);
+    invaderBullets = invaderBullets.filter(b => b.y < H);
+    
+    // Hit detection
+    bullets.forEach(b => {
+      invaders.forEach(inv => {
+        if (inv.alive && Math.abs(b.x - inv.x) < 12 && Math.abs(b.y - inv.y) < 10) {
+          inv.alive = false;
+          b.y = -100;
+        }
+      });
+    });
+    
+    // Respawn if all dead
+    if (invaders.every(i => !i.alive)) {
+      invaders.forEach((inv, idx) => {
+        inv.alive = true;
+        inv.x = 60 + (idx % 8) * 35;
+        inv.y = 30 + Math.floor(idx / 8) * 28;
+      });
+    }
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#03030a';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Invaders
+    invaders.forEach(inv => {
+      if (inv.alive) {
+        ctx.fillStyle = '#00ff00';
+        ctx.shadowColor = '#00ff00';
+        ctx.shadowBlur = 5;
+        // Simple invader shape
+        ctx.fillRect(inv.x - 10, inv.y - 5, 20, 10);
+        ctx.fillRect(inv.x - 12, inv.y - 8, 4, 4);
+        ctx.fillRect(inv.x + 8, inv.y - 8, 4, 4);
+        ctx.fillRect(inv.x - 8, inv.y + 5, 4, 4);
+        ctx.fillRect(inv.x + 4, inv.y + 5, 4, 4);
+      }
+    });
+    
+    // Player
+    ctx.fillStyle = '#00ffaa';
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(player.x, H - 35);
+    ctx.lineTo(player.x - 15, H - 20);
+    ctx.lineTo(player.x + 15, H - 20);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Bullets
+    ctx.fillStyle = '#fff';
+    bullets.forEach(b => ctx.fillRect(b.x - 1, b.y, 2, 8));
+    
+    ctx.fillStyle = '#ff6b6b';
+    invaderBullets.forEach(b => ctx.fillRect(b.x - 1, b.y, 2, 8));
+    ctx.shadowBlur = 0;
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+// Flappy Preview
+(function() {
+  const canvas = document.getElementById('flappyPreview');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = 400;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  
+  let bird = { y: H/2, vy: 0 };
+  let pipes = [];
+  let frame = 0;
+  
+  // Spawn initial pipes
+  for (let i = 0; i < 3; i++) {
+    pipes.push({
+      x: 300 + i * 150,
+      gapY: 60 + Math.random() * 100,
+      gapH: 70
+    });
+  }
+  
+  function update() {
+    frame++;
+    
+    // Bird physics
+    bird.vy += 0.3;
+    bird.y += bird.vy;
+    
+    // AI: flap when needed
+    const nextPipe = pipes.find(p => p.x > 50);
+    if (nextPipe) {
+      const targetY = nextPipe.gapY + nextPipe.gapH / 2;
+      if (bird.y > targetY + 10 || bird.vy > 3) {
+        bird.vy = -5;
+      }
+    }
+    
+    // Bounds
+    if (bird.y < 10) bird.y = 10;
+    if (bird.y > H - 10) {
+      bird.y = H/2;
+      bird.vy = 0;
+    }
+    
+    // Move pipes
+    pipes.forEach(p => p.x -= 2);
+    
+    // Recycle pipes
+    if (pipes[0].x < -30) {
+      pipes.shift();
+      pipes.push({
+        x: pipes[pipes.length - 1].x + 150,
+        gapY: 50 + Math.random() * 100,
+        gapH: 70
+      });
+    }
+  }
+  
+  function draw() {
+    // Sky gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#1a1a2e');
+    grad.addColorStop(1, '#16213e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    
+    // Pipes
+    ctx.fillStyle = '#00ffaa';
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 10;
+    pipes.forEach(p => {
+      // Top pipe
+      ctx.fillRect(p.x - 20, 0, 40, p.gapY);
+      // Bottom pipe
+      ctx.fillRect(p.x - 20, p.gapY + p.gapH, 40, H - p.gapY - p.gapH);
+    });
+    
+    // Bird
+    ctx.fillStyle = '#ffcc00';
+    ctx.shadowColor = '#ffcc00';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(60, bird.y, 12, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Eye
+    ctx.fillStyle = '#000';
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(64, bird.y - 3, 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Beak
+    ctx.fillStyle = '#ff6b6b';
+    ctx.beginPath();
+    ctx.moveTo(72, bird.y);
+    ctx.lineTo(65, bird.y - 4);
+    ctx.lineTo(65, bird.y + 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+  
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
 // User dropdown toggle
 function toggleUserDropdown() {
   document.getElementById('userDropdown').classList.toggle('show');
