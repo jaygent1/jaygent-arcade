@@ -1874,7 +1874,7 @@ function startPollingSpectate(sessionId) {
       }
       
       // Fast polling for smoother updates
-      setTimeout(poll, 33); // ~30fps polling
+      setTimeout(poll, 16); // ~60fps polling
     } catch (e) {
       document.getElementById('message').textContent = 'Connection lost';
     }
@@ -1998,7 +1998,7 @@ function spectateRenderLoop() {
   
   const now = performance.now();
   const elapsed = now - spectateState.lastUpdate;
-  const frameTime = 33; // Expected time between updates
+  const frameTime = 16; // Expected time between updates (~60fps)
   
   // Calculate interpolation factor (0 to 1)
   spectateState.interpolationFactor = Math.min(elapsed / frameTime, 1.5);

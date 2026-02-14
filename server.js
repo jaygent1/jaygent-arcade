@@ -976,7 +976,7 @@ function startBroadcaster(sessionId) {
     }
     
     broadcaster.lastState = currentState;
-  }, 33); // ~30fps
+  }, 16); // ~60fps
   
   sessionBroadcasters.set(sessionId, broadcaster);
   console.log(`Broadcaster started: ${sessionId}`);
