@@ -9,7 +9,46 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+
+// Game engines
 const { VoidRushGame } = require('./engine/void-rush');
+const { SnakeGame } = require('./engine/snake');
+const { PongGame } = require('./engine/pong');
+const { FlappyGame } = require('./engine/flappy');
+const { TetrisGame } = require('./engine/tetris');
+const { BreakerGame } = require('./engine/breaker');
+const { AsteroidsGame } = require('./engine/asteroids');
+const { InvadersGame } = require('./engine/invaders');
+const { GridRunnerGame } = require('./engine/gridrunner');
+
+// Game registry
+const GAMES = {
+  'void-rush': { Engine: VoidRushGame, name: 'VOID RUSH', desc: 'Space shooter with infinite waves' },
+  'snake': { Engine: SnakeGame, name: 'NEON SNAKE', desc: 'Classic snake with powerups' },
+  'pong': { Engine: PongGame, name: 'CYBER PONG', desc: 'AI pong battle' },
+  'flappy': { Engine: FlappyGame, name: 'NEON FLAP', desc: 'Flappy bird clone' },
+  'tetris': { Engine: TetrisGame, name: 'STACK ATTACK', desc: 'Block stacking puzzle' },
+  'breaker': { Engine: BreakerGame, name: 'BREAKER', desc: 'Brick breaker with powerups' },
+  'asteroids': { Engine: AsteroidsGame, name: 'ASTEROID FIELD', desc: 'Classic asteroids' },
+  'invaders': { Engine: InvadersGame, name: 'SPACE INVADERS', desc: 'Alien shooter' },
+  'gridrunner': { Engine: GridRunnerGame, name: 'GRID RUNNER', desc: 'Tron lightcycle battle' }
+};
+
+// Game action schemas
+function getGameActions(gameId) {
+  const actions = {
+    'void-rush': ['left', 'right', 'up', 'down', 'shoot', 'bomb'],
+    'snake': ['left', 'right', 'up', 'down'],
+    'pong': ['up', 'down'],
+    'flappy': ['flap'],
+    'tetris': ['left', 'right', 'down', 'rotate', 'drop'],
+    'breaker': ['left', 'right', 'launch'],
+    'asteroids': ['left', 'right', 'thrust', 'shoot'],
+    'invaders': ['left', 'right', 'shoot'],
+    'gridrunner': ['left', 'right', 'up', 'down', 'boost']
+  };
+  return actions[gameId] || [];
+}
 
 // Supabase integration (optional - gracefully degrades if not configured)
 let db = null;
@@ -432,23 +471,26 @@ const server = http.createServer((req, res) => {
       
       // List available games
       if (url.pathname === '/api/games' && req.method === 'GET') {
-        return json({
-          games: [
-            {
-              id: 'void-rush',
-              name: 'VOID RUSH',
-              description: 'Space shooter with infinite waves',
-              dimensions: { width: 550, height: 650 },
-              actions: ['left', 'right', 'up', 'down', 'shoot', 'bomb']
-            }
-          ]
-        });
+        const gameList = Object.entries(GAMES).map(([id, info]) => ({
+          id,
+          name: info.name,
+          description: info.desc,
+          actions: getGameActions(id)
+        }));
+        return json({ games: gameList });
       }
       
-      // ========== VOID RUSH GAME API ==========
+      // ========== UNIVERSAL GAME API ==========
       
-      // Start new game session
-      if (url.pathname === '/api/games/void-rush/start' && req.method === 'POST') {
+      // Start new game session (any game)
+      const startMatch = url.pathname.match(/^\/api\/games\/([a-z-]+)\/start$/);
+      if (startMatch && req.method === 'POST') {
+        const gameId = startMatch[1];
+        const gameInfo = GAMES[gameId];
+        
+        if (!gameInfo) {
+          return json({ error: `Unknown game: ${gameId}` }, 404);
+        }
         const data = await parseBody();
         
         // Check for agent API key
@@ -458,7 +500,10 @@ const server = http.createServer((req, res) => {
         const playerId = agent ? agent.name : (data.playerId || `anon_${Math.random().toString(36).substr(2, 6)}`);
         const playerType = agent ? 'AGENT' : (data.playerType || 'AGENT');
         
-        const game = new VoidRushGame(playerId, playerType);
+        // Create game using the appropriate engine
+        const GameEngine = gameInfo.Engine;
+        const game = new GameEngine(playerId, playerType);
+        game.gameType = gameId; // Track which game type
         game.replayFrames = []; // Initialize replay storage
         game.agentId = agent?.id || null;
         game.apiKey = apiKey || null;
@@ -468,7 +513,6 @@ const server = http.createServer((req, res) => {
         game.tick();
         
         // Real-time mode: game ticks continuously at 60fps (for smooth spectating)
-        // Agent actions are applied async. Use ?realtime=1 or realtime:true in body
         const realtime = url.searchParams.get('realtime') === '1' || data.realtime === true;
         if (realtime) {
           game.realtimeLoop = setInterval(() => {
@@ -484,7 +528,7 @@ const server = http.createServer((req, res) => {
               game.replayFrames.push(game.getState());
             }
           }, 16); // 60fps
-          console.log(`Real-time game started: ${game.id}`);
+          console.log(`Real-time ${gameId} game started: ${game.id}`);
         }
         
         // Record initial frame
@@ -492,6 +536,7 @@ const server = http.createServer((req, res) => {
         
         return json({
           sessionId: game.id,
+          gameType: gameId,
           playerId: game.playerId,
           playerType: game.playerType,
           agent: agent ? { id: agent.id, name: agent.name } : null,
@@ -499,9 +544,10 @@ const server = http.createServer((req, res) => {
         });
       }
       
-      // Get game state
-      if (url.pathname.match(/^\/api\/games\/void-rush\/([^\/]+)\/state$/) && req.method === 'GET') {
-        const sessionId = url.pathname.split('/')[4];
+      // Get game state (any game)
+      const stateMatch = url.pathname.match(/^\/api\/games\/([a-z-]+)\/([^\/]+)\/state$/);
+      if (stateMatch && req.method === 'GET') {
+        const sessionId = stateMatch[2];
         const game = sessions.get(sessionId);
         
         if (!game) {
@@ -511,9 +557,10 @@ const server = http.createServer((req, res) => {
         return json(game.getState());
       }
       
-      // Send action and get new state (tick)
-      if (url.pathname.match(/^\/api\/games\/void-rush\/([^\/]+)\/action$/) && req.method === 'POST') {
-        const sessionId = url.pathname.split('/')[4];
+      // Send action and get new state (any game)
+      const actionMatch = url.pathname.match(/^\/api\/games\/([a-z-]+)\/([^\/]+)\/action$/);
+      if (actionMatch && req.method === 'POST') {
+        const sessionId = actionMatch[2];
         const game = sessions.get(sessionId);
         
         if (!game) {
@@ -530,15 +577,27 @@ const server = http.createServer((req, res) => {
         
         const data = await parseBody();
         
-        // Set input
-        game.setInput({
+        // Set input (supports various action formats)
+        const input = {
           left: data.left || data.action === 'left',
           right: data.right || data.action === 'right',
           up: data.up || data.action === 'up',
           down: data.down || data.action === 'down',
-          shoot: data.shoot || data.action === 'shoot',
-          bomb: data.bomb || data.action === 'bomb'
-        });
+          shoot: data.shoot || data.action === 'shoot' || data.action === 'space',
+          bomb: data.bomb || data.action === 'bomb',
+          // Flappy
+          flap: data.flap || data.action === 'flap' || data.action === 'space',
+          // Tetris
+          rotate: data.rotate || data.action === 'rotate',
+          drop: data.drop || data.action === 'drop',
+          // Breaker
+          launch: data.launch || data.action === 'launch' || data.action === 'space',
+          // Asteroids
+          thrust: data.thrust || data.action === 'thrust' || data.up,
+          // Grid Runner
+          boost: data.boost || data.action === 'boost'
+        };
+        game.setInput(input);
         
         // Run game tick(s)
         const ticks = Math.min(data.ticks || 1, 10); // Max 10 ticks per request
@@ -568,9 +627,11 @@ const server = http.createServer((req, res) => {
         return json(response);
       }
       
-      // End game and submit score
-      if (url.pathname.match(/^\/api\/games\/void-rush\/([^\/]+)\/end$/) && req.method === 'POST') {
-        const sessionId = url.pathname.split('/')[4];
+      // End game and submit score (any game)
+      const endMatch = url.pathname.match(/^\/api\/games\/([a-z-]+)\/([^\/]+)\/end$/);
+      if (endMatch && req.method === 'POST') {
+        const gameType = endMatch[1];
+        const sessionId = endMatch[2];
         const game = sessions.get(sessionId);
         
         if (!game) {
