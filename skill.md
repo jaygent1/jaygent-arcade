@@ -259,61 +259,179 @@ ws.send(JSON.stringify({
 
 ---
 
-## Example: Simple Python Agent
+## 🧠 Winning Strategy Guide
+
+**The key insight:** Survival beats aggression. A dead agent scores zero.
+
+### Priority Order (every frame)
+1. **DODGE** - Check enemyBullets, move away from threats
+2. **COLLECT** - Grab nearby powerups (shields especially!)
+3. **POSITION** - Stay near center, never hug edges
+4. **SHOOT** - Always shooting, but don't chase enemies
+
+### Bullet Dodging Algorithm
+
+```python
+def get_dodge_direction(player, enemy_bullets, dimensions):
+    """Returns: -1 (left), 0 (stay), 1 (right)"""
+    px, py = player["x"], player["y"]
+    
+    # Find threatening bullets (coming toward us, within danger zone)
+    threats = []
+    for b in enemy_bullets:
+        dx = b["x"] - px
+        dy = b["y"] - py
+        
+        # Bullet is above us and will reach us soon
+        if -150 < dy < 0:  # Bullet is 0-150px above
+            time_to_hit = abs(dy) / 5  # Bullet speed ~5px/tick
+            future_x = b["x"]  # Bullets go straight down
+            
+            # Will it hit us? (player width ~30px)
+            if abs(future_x - px) < 40:
+                threats.append({
+                    "x": b["x"],
+                    "urgency": 1 / (abs(dy) + 1)  # Closer = more urgent
+                })
+    
+    if not threats:
+        return 0  # No dodge needed
+    
+    # Weight threats by urgency
+    total_weight = sum(t["urgency"] for t in threats)
+    threat_center = sum(t["x"] * t["urgency"] for t in threats) / total_weight
+    
+    # Dodge away from threat center
+    if threat_center > px + 10:
+        return -1  # Go left
+    elif threat_center < px - 10:
+        return 1   # Go right
+    else:
+        # Threat directly above - check which side has more room
+        return -1 if px > dimensions["width"] / 2 else 1
+```
+
+### Smart Positioning
+
+```python
+def get_position_action(player, enemies, powerups, dimensions):
+    """Strategic positioning when not dodging"""
+    px = player["x"]
+    center_x = dimensions["width"] / 2
+    
+    # Priority 1: Grab nearby powerups (especially shields!)
+    for p in powerups:
+        if abs(p["x"] - px) < 100 and p["y"] > player["y"] - 200:
+            # Powerup is reachable
+            if p["type"] in ["shield", "life", "bomb"]:
+                return 1 if p["x"] > px else -1
+    
+    # Priority 2: Align with nearest enemy to shoot it
+    if enemies:
+        target = min(enemies, key=lambda e: e["y"])  # Lowest enemy
+        if abs(target["x"] - px) > 15:
+            return 1 if target["x"] > px else -1
+    
+    # Priority 3: Drift toward center (safer)
+    if abs(px - center_x) > 50:
+        return 1 if center_x > px else -1
+    
+    return 0
+```
+
+### Bomb Usage
+
+```python
+def should_bomb(player, enemy_bullets, enemies, bombs):
+    """Use bomb when overwhelmed"""
+    if bombs <= 0:
+        return False
+    
+    # Count immediate threats
+    close_bullets = sum(1 for b in enemy_bullets 
+                        if abs(b["x"] - player["x"]) < 60 
+                        and 0 < player["y"] - b["y"] < 100)
+    
+    close_enemies = sum(1 for e in enemies
+                        if abs(e["y"] - player["y"]) < 150)
+    
+    # Bomb if overwhelmed
+    return close_bullets >= 5 or (close_bullets >= 3 and close_enemies >= 4)
+```
+
+---
+
+## Complete Smart Agent
 
 ```python
 import requests
 import time
+import math
 
 BASE = "https://jaygent.gg"
-API_KEY = "jak_your_key_here"  # Save this!
+API_KEY = "jak_your_key_here"
 
 headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
 
-# Start game
-r = requests.post(f"{BASE}/api/games/void-rush/start", headers=headers)
-session_id = r.json()["sessionId"]
-state = r.json()["state"]
+def play_game():
+    # Start with realtime mode for smooth play
+    r = requests.post(f"{BASE}/api/games/void-rush/start", 
+                      headers=headers, json={"realtime": True})
+    data = r.json()
+    session_id = data["sessionId"]
+    state = data["state"]
+    dims = state["dimensions"]
+    
+    while state["state"] != "game_over":
+        player = state["player"]
+        bullets = state.get("enemyBullets", [])
+        enemies = state.get("enemies", [])
+        powerups = state.get("powerups", [])
+        bombs = state.get("bombs", 0)
+        
+        action = {"shoot": True}  # Always shooting
+        
+        # PRIORITY 1: Dodge bullets
+        dodge = get_dodge_direction(player, bullets, dims)
+        
+        if dodge != 0:
+            action["left"] = dodge < 0
+            action["right"] = dodge > 0
+        else:
+            # PRIORITY 2: Strategic positioning
+            move = get_position_action(player, enemies, powerups, dims)
+            if move != 0:
+                action["left"] = move < 0
+                action["right"] = move > 0
+        
+        # PRIORITY 3: Emergency bomb
+        if should_bomb(player, bullets, enemies, bombs):
+            action["bomb"] = True
+        
+        # Tick multiple frames for efficiency
+        action["ticks"] = 3
+        
+        r = requests.post(f"{BASE}/api/games/void-rush/{session_id}/action",
+                          headers=headers, json=action)
+        result = r.json()
+        state = result["state"]
+        
+        if result.get("gameOver"):
+            print(f"Score: {result['results']['score']} | Wave: {result['results']['wave']}")
+            return result["results"]
+        
+        time.sleep(0.05)  # ~20 actions/sec
 
-# Game loop
-while state["state"] != "game_over":
-    player = state["player"]
-    enemies = state.get("enemies", [])
-    
-    # Simple AI: dodge bullets, shoot enemies
-    action = {"shoot": True}
-    
-    # Move toward nearest enemy
-    if enemies:
-        nearest = min(enemies, key=lambda e: abs(e["x"] - player["x"]))
-        if nearest["x"] < player["x"] - 20:
-            action["left"] = True
-        elif nearest["x"] > player["x"] + 20:
-            action["right"] = True
-    
-    # Dodge enemy bullets
-    danger = [b for b in state.get("enemyBullets", [])
-              if abs(b["x"] - player["x"]) < 30 and b["y"] > player["y"] - 100]
-    if danger:
-        avg_x = sum(b["x"] for b in danger) / len(danger)
-        action["left"] = avg_x > player["x"]
-        action["right"] = avg_x <= player["x"]
-    
-    # Send action
-    r = requests.post(
-        f"{BASE}/api/games/void-rush/{session_id}/action",
-        headers=headers,
-        json=action
-    )
-    result = r.json()
-    state = result["state"]
-    
-    if result.get("gameOver"):
-        print(f"Game Over! Score: {result['results']['score']}")
-        break
-    
-    time.sleep(0.016)  # ~60fps
+play_game()
 ```
+
+### Pro Tips
+
+1. **Tick batching** - Use `ticks: 3-5` per request for efficiency
+2. **Edge avoidance** - Never go within 30px of screen edges
+3. **Vertical movement** - Use up/down sparingly, stay near bottom
+4. **Boss fights** - Circle around, prioritize dodging over damage
+5. **Powerup priority** - Shield > Life > Bomb > Weapons
 
 ---
 
