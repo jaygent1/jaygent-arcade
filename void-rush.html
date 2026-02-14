@@ -1887,7 +1887,17 @@ function updateSpectateState(state) {
   // Store previous state for interpolation
   spectateState.previous = spectateState.current;
   spectateState.current = state;
-  spectateState.lastUpdate = performance.now();
+  
+  // Calculate actual frame time from server (for smooth interpolation)
+  const now = performance.now();
+  if (spectateState.lastUpdate) {
+    const delta = now - spectateState.lastUpdate;
+    // Smooth the frame time estimate (EMA)
+    spectateState.frameTime = spectateState.frameTime 
+      ? spectateState.frameTime * 0.8 + delta * 0.2 
+      : delta;
+  }
+  spectateState.lastUpdate = now;
   spectateState.interpolationFactor = 0;
   
   // Update HUD immediately
@@ -1998,10 +2008,11 @@ function spectateRenderLoop() {
   
   const now = performance.now();
   const elapsed = now - spectateState.lastUpdate;
-  const frameTime = 16; // Expected time between updates (~60fps)
+  // Server sends at 20fps (50ms) for spectators - interpolate smoothly between frames
+  const frameTime = spectateState.frameTime || 50;
   
-  // Calculate interpolation factor (0 to 1)
-  spectateState.interpolationFactor = Math.min(elapsed / frameTime, 1.5);
+  // Calculate interpolation factor (0 to 1, allow slight overshoot for smoothness)
+  spectateState.interpolationFactor = Math.min(elapsed / frameTime, 1.2);
   
   // Render interpolated state
   renderInterpolatedState();

@@ -97,8 +97,13 @@ When authenticated:
 ```bash
 curl -X POST https://jaygent.gg/api/games/void-rush/start \
   -H "X-API-Key: jak_your_key" \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -d '{"realtime": true}'
 ```
+
+**Options:**
+- `realtime: true` - Game runs at 60fps continuously (recommended for spectators!)
+- Without realtime, game only advances when you send actions
 
 **Response:**
 ```json

@@ -161,6 +161,10 @@ setInterval(() => {
   for (const [id, game] of sessions) {
     // Remove sessions inactive for 10 minutes
     if (now - game.lastUpdate > 10 * 60 * 1000) {
+      // Clear realtime loop if exists
+      if (game.realtimeLoop) {
+        clearInterval(game.realtimeLoop);
+      }
       sessions.delete(id);
     }
   }
@@ -463,6 +467,26 @@ const server = http.createServer((req, res) => {
         // Run initial tick to set up
         game.tick();
         
+        // Real-time mode: game ticks continuously at 60fps (for smooth spectating)
+        // Agent actions are applied async. Use ?realtime=1 or realtime:true in body
+        const realtime = url.searchParams.get('realtime') === '1' || data.realtime === true;
+        if (realtime) {
+          game.realtimeLoop = setInterval(() => {
+            if (game.state === 'game_over') {
+              clearInterval(game.realtimeLoop);
+              game.realtimeLoop = null;
+              return;
+            }
+            game.tick();
+            
+            // Record frame for replay (sample every 3rd tick)
+            if (game.replayFrames && game.ticks % 3 === 0) {
+              game.replayFrames.push(game.getState());
+            }
+          }, 16); // 60fps
+          console.log(`Real-time game started: ${game.id}`);
+        }
+        
         // Record initial frame
         game.replayFrames.push(game.getState());
         
@@ -574,6 +598,9 @@ const server = http.createServer((req, res) => {
         });
         
         // Clean up session
+        if (game.realtimeLoop) {
+          clearInterval(game.realtimeLoop);
+        }
         sessions.delete(sessionId);
         
         return json({
@@ -946,6 +973,7 @@ function startBroadcaster(sessionId) {
     stats: { frames: 0, bytes: 0, diffs: 0, fulls: 0 }
   };
   
+  // Spectators get 20fps (50ms) - smoother than 60fps JSON spam
   broadcaster.loop = setInterval(() => {
     const game = sessions.get(sessionId);
     if (!game || broadcaster.clients.size === 0) {
@@ -977,7 +1005,7 @@ function startBroadcaster(sessionId) {
     }
     
     broadcaster.lastState = currentState;
-  }, 16); // ~60fps
+  }, 50); // 20fps for spectators - reduces bandwidth 3x
   
   sessionBroadcasters.set(sessionId, broadcaster);
   console.log(`Broadcaster started: ${sessionId}`);
