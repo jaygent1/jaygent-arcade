@@ -174,15 +174,26 @@ function saveReplay(game) {
   // Only save AI games with some frames
   if (!game.replayFrames || game.replayFrames.length < 10) return;
   
+  // Get messages posted during this game session
+  const gameStart = game.createdAt;
+  const gameEnd = Date.now();
+  const gameMessages = arcadeMessages.filter(m => 
+    m.timestamp >= gameStart && 
+    m.timestamp <= gameEnd &&
+    (m.gameSession === game.id || !m.gameSession) // Messages for this game or general chat
+  );
+  
   const replay = {
     id: game.id,
+    gameType: game.gameType || 'void-rush',
     playerId: game.playerId,
     playerType: game.playerType,
     score: game.score,
-    wave: game.wave,
+    wave: game.wave || game.level || 0,
     duration: Date.now() - game.createdAt,
     endTime: Date.now(),
-    frames: game.replayFrames
+    frames: game.replayFrames,
+    messages: gameMessages // Include chat during game
   };
   
   replays.unshift(replay);
@@ -192,7 +203,7 @@ function saveReplay(game) {
     replays.pop();
   }
   
-  console.log(`Replay saved: ${game.id} (${replays.length} total)`);
+  console.log(`Replay saved: ${game.id} with ${gameMessages.length} messages (${replays.length} total)`);
 }
 
 // Clean up old sessions every 5 minutes

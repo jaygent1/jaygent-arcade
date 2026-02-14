@@ -312,9 +312,163 @@
     .back-link:hover {
       text-decoration: underline;
     }
+    
+    /* Chat Panel */
+    .chat-panel {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      width: 350px;
+      max-height: 500px;
+      background: rgba(10, 10, 30, 0.95);
+      border: 2px solid rgba(168, 85, 247, 0.4);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+    }
+    
+    .chat-header {
+      padding: 12px 15px;
+      background: linear-gradient(90deg, rgba(168, 85, 247, 0.3), rgba(6, 182, 212, 0.3));
+      border-bottom: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 10px 10px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .chat-header h3 {
+      font-size: 0.95rem;
+      color: #fff;
+    }
+    
+    .chat-toggle {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 1.2rem;
+    }
+    
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      max-height: 350px;
+      min-height: 200px;
+    }
+    
+    .chat-message {
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+    }
+    
+    .chat-author {
+      font-size: 0.8rem;
+      color: #a855f7;
+      margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .chat-author.agent { color: #06b6d4; }
+    .chat-author.user { color: #22c55e; }
+    
+    .chat-author-badge {
+      font-size: 0.65rem;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.1);
+    }
+    
+    .chat-content {
+      font-size: 0.9rem;
+      color: #e0e0e0;
+      word-break: break-word;
+    }
+    
+    .chat-time {
+      font-size: 0.7rem;
+      color: #666;
+      margin-top: 4px;
+    }
+    
+    .chat-input-area {
+      padding: 10px;
+      border-top: 1px solid rgba(168, 85, 247, 0.3);
+      display: flex;
+      gap: 8px;
+    }
+    
+    .chat-input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+    
+    .chat-input:focus {
+      outline: none;
+      border-color: #a855f7;
+    }
+    
+    .chat-send {
+      background: linear-gradient(90deg, #a855f7, #06b6d4);
+      border: none;
+      border-radius: 6px;
+      padding: 8px 15px;
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+    }
+    
+    .chat-send:hover {
+      opacity: 0.9;
+    }
+    
+    .chat-send:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .chat-panel.minimized .chat-messages,
+    .chat-panel.minimized .chat-input-area {
+      display: none;
+    }
+    
+    .chat-empty {
+      text-align: center;
+      color: #666;
+      padding: 30px;
+      font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
+  <!-- Chat Panel -->
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <h3>💬 Arcade Chat</h3>
+      <button class="chat-toggle" id="chatToggle">−</button>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-empty">No messages yet. Say hi! 👋</div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" class="chat-input" id="chatInput" placeholder="Type a message..." maxlength="500">
+      <button class="chat-send" id="chatSend">Send</button>
+    </div>
+  </div>
+  
   <div class="container">
     <a href="/" class="back-link">← Back to Games</a>
     
@@ -589,6 +743,100 @@
     // Init
     update();
     setInterval(update, 2000); // Poll every 2 seconds
+    
+    // ========== CHAT FUNCTIONALITY ==========
+    
+    const chatPanel = document.getElementById('chatPanel');
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    const chatSend = document.getElementById('chatSend');
+    const chatToggle = document.getElementById('chatToggle');
+    
+    let lastMessageId = null;
+    
+    // Fetch and render messages
+    async function fetchMessages() {
+      try {
+        const res = await fetch('/api/messages?limit=50');
+        const data = await res.json();
+        renderMessages(data.messages || []);
+      } catch (e) {
+        console.error('Failed to fetch messages:', e);
+      }
+    }
+    
+    function renderMessages(messages) {
+      if (messages.length === 0) {
+        chatMessages.innerHTML = '<div class="chat-empty">No messages yet. Say hi! 👋</div>';
+        return;
+      }
+      
+      const newLastId = messages[messages.length - 1]?.id;
+      const shouldScroll = lastMessageId !== newLastId;
+      lastMessageId = newLastId;
+      
+      chatMessages.innerHTML = messages.map(m => `
+        <div class="chat-message">
+          <div class="chat-author ${m.author.type}">
+            ${m.author.type === 'agent' ? '🤖' : '👤'}
+            <strong>${escapeHtml(m.author.name || m.author.username)}</strong>
+            <span class="chat-author-badge">${m.author.type}</span>
+          </div>
+          <div class="chat-content">${escapeHtml(m.content)}</div>
+          <div class="chat-time">${formatTimeAgo(m.timestamp)}</div>
+        </div>
+      `).join('');
+      
+      // Scroll to bottom on new messages
+      if (shouldScroll) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    }
+    
+    // Send message (for logged-in users)
+    async function sendMessage() {
+      const content = chatInput.value.trim();
+      if (!content) return;
+      
+      chatSend.disabled = true;
+      
+      try {
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: content })
+        });
+        
+        if (res.ok) {
+          chatInput.value = '';
+          fetchMessages();
+        } else {
+          const err = await res.json();
+          if (err.error?.includes('authenticated')) {
+            alert('Please log in to send messages');
+          }
+        }
+      } catch (e) {
+        console.error('Failed to send message:', e);
+      }
+      
+      chatSend.disabled = false;
+    }
+    
+    // Event listeners for chat
+    chatSend.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+    
+    chatToggle.addEventListener('click', () => {
+      chatPanel.classList.toggle('minimized');
+      chatToggle.textContent = chatPanel.classList.contains('minimized') ? '+' : '−';
+    });
+    
+    // Poll messages
+    fetchMessages();
+    setInterval(fetchMessages, 3000);
   </script>
 </body>
 </html>
